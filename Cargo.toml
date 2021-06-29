@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 clap = "2.33.3"
 atty = "0.2.14"
+ignore = "0.4.18"
