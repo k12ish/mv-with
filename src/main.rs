@@ -9,6 +9,9 @@ use std::process::Command;
 use atty::Stream;
 use clap::App;
 use clap::Arg;
+use colored::Colorize;
+use dissimilar;
+use dissimilar::Chunk;
 use ignore::Walk;
 use ignore::WalkBuilder;
 
@@ -74,7 +77,8 @@ fn main() -> io::Result<()> {
             FileList::try_from(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    fs::write("/tmp/rename-via", format!("{:?}", file_list))?;
+    let before = format!("{:?}", file_list);
+    fs::write("/tmp/rename-via", &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
     Command::new("/usr/bin/sh")
@@ -84,5 +88,29 @@ fn main() -> io::Result<()> {
         .expect("Error: Failed to run editor")
         .wait()
         .expect("Error: Editor returned a non-zero status");
+
+    let mut file = fs::File::open("/tmp/rename-via")?;
+    let mut after = String::new();
+    file.read_to_string(&mut after)?;
+
+    for (line_before, line_after) in before.lines().zip(after.lines()) {
+        linewise_diff(line_before, line_after)
+    }
     Ok(())
+}
+
+fn linewise_diff(line_before: &str, line_after: &str) {
+    let mut line_diff = String::with_capacity(line_before.len());
+    let chunk_vec = dissimilar::diff(&line_before, &line_after);
+    for chunk in chunk_vec {
+        match chunk {
+            Chunk::Equal(s) => line_diff.push_str(&format!("{}", s.normal())),
+            Chunk::Delete(s) => line_diff.push_str(&format!("{}", s.red().strikethrough())),
+            Chunk::Insert(s) => line_diff.push_str(&format!("{}", s.green())),
+        }
+    }
+    if line_diff.len() == line_before.len() {
+        line_diff.push_str(&format!("  {}", "(unchanged)".italic().dimmed()))
+    }
+    println!("{}", line_diff)
 }
