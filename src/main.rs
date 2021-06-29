@@ -3,6 +3,7 @@ use std::fs;
 use std::fs::ReadDir;
 use std::io;
 use std::io::Read;
+use std::io::Stdin;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -10,9 +11,11 @@ use atty::Stream;
 use clap::App;
 use clap::Arg;
 
+#[derive(Debug)]
 struct FileList {
     filenames: Vec<PathBuf>,
 }
+
 impl TryFrom<ReadDir> for FileList {
     type Error = io::Error;
 
@@ -22,6 +25,18 @@ impl TryFrom<ReadDir> for FileList {
         for dir_entry in read_dir {
             filenames.push(dir_entry?.path());
         }
+        Ok(FileList { filenames })
+    }
+}
+
+impl TryFrom<Stdin> for FileList {
+    type Error = io::Error;
+
+    /// Limitation: Non-Unicode filenames cannot be processed
+    fn try_from(mut stdin: Stdin) -> Result<Self, Self::Error> {
+        let mut buf = String::new();
+        stdin.read_to_string(&mut buf)?;
+        let filenames = buf.split('\n').map(PathBuf::from).collect();
         Ok(FileList { filenames })
     }
 }
@@ -39,15 +54,14 @@ fn main() -> io::Result<()> {
         )
         .get_matches();
 
-    let mut buffer = String::new();
-
-    if atty::is(Stream::Stdin) {
-        let read_dir = fs::read_dir("./").unwrap();
-        let file_list = FileList::try_from(read_dir);
-    } else {
-        io::stdin().read_to_string(&mut buffer)?;
-    }
-    fs::write("/tmp/rename-via", buffer)?;
+    let file_list = {
+        if atty::is(Stream::Stdin) {
+            FileList::try_from(fs::read_dir("./").unwrap()).expect("Error Reading Directory")
+        } else {
+            FileList::try_from(io::stdin()).expect("Error Reading StdIn")
+        }
+    };
+    fs::write("/tmp/rename-via", format!("{:?}", file_list))?;
 
     let editor = matches.value_of("EDITOR").unwrap();
     Command::new("/usr/bin/sh")
