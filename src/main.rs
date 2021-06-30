@@ -20,6 +20,20 @@ struct FileList {
     filenames: Vec<PathBuf>,
 }
 
+impl FileList {
+    fn as_string(&self) -> String {
+        let mut buffer = String::new();
+        for path in self.filenames.iter() {
+            match path.file_name() {
+                None => buffer.push_str(&path.to_string_lossy()),
+                Some(os_str) => buffer.push_str(&os_str.to_string_lossy()),
+            }
+            buffer.push_str("\n");
+        }
+        buffer
+    }
+}
+
 impl TryFrom<Walk> for FileList {
     type Error = ignore::Error;
 
@@ -77,7 +91,7 @@ fn main() -> io::Result<()> {
             FileList::try_from(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    let before = format!("{:?}", file_list);
+    let before = file_list.as_string();
     fs::write("/tmp/rename-via", &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
@@ -100,7 +114,8 @@ fn main() -> io::Result<()> {
 }
 
 fn linewise_diff(line_before: &str, line_after: &str) {
-    let mut line_diff = String::with_capacity(line_before.len());
+    let mut line_diff = String::new();
+    line_diff.reserve(line_before.len());
     let chunk_vec = dissimilar::diff(&line_before, &line_after);
     for chunk in chunk_vec {
         match chunk {
@@ -110,7 +125,7 @@ fn linewise_diff(line_before: &str, line_after: &str) {
         }
     }
     if line_diff.len() == line_before.len() {
-        line_diff.push_str(&format!("  {}", "(unchanged)".italic().dimmed()))
+        line_diff = format!("{:<55}  {}", line_diff, "(unchanged)".italic().dimmed());
     }
     println!("{}", line_diff)
 }
