@@ -61,7 +61,7 @@ impl TryFrom<Stdin> for FileList {
 }
 
 fn main() -> io::Result<()> {
-    let matches = App::new("rename-via")
+    let matches = App::new("rename-with")
         .version("0.1")
         .author("Krish S. <k4krish@gmail.com>")
         .about("Renames files with your preferred editor")
@@ -92,18 +92,18 @@ fn main() -> io::Result<()> {
         }
     };
     let before = file_list.as_string();
-    fs::write("/tmp/rename-via", &before)?;
+    fs::write("/tmp/rename-with", &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
     Command::new("/usr/bin/sh")
         .arg("-c")
-        .arg(format!("{} /tmp/rename-via", editor))
+        .arg(format!("{} /tmp/rename-with", editor))
         .spawn()
         .expect("Error: Failed to run editor")
         .wait()
         .expect("Error: Editor returned a non-zero status");
 
-    let mut file = fs::File::open("/tmp/rename-via")?;
+    let mut file = fs::File::open("/tmp/rename-with")?;
     let mut after = String::new();
     file.read_to_string(&mut after)?;
 

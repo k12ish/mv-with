@@ -1,5 +1,5 @@
 [package]
-name = "rename-via"
+name = "rename-with"
 version = "0.1.0"
 authors = ["k12ish <k4krish@gmail.com>"]
 edition = "2018"
