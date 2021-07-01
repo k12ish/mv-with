@@ -14,6 +14,8 @@ use dissimilar;
 use dissimilar::Chunk;
 use ignore::Walk;
 use ignore::WalkBuilder;
+use question::Answer;
+use question::Question;
 
 #[derive(Debug)]
 struct FileList {
@@ -24,10 +26,7 @@ impl FileList {
     fn as_string(&self) -> String {
         let mut buffer = String::new();
         for path in self.filenames.iter() {
-            match path.file_name() {
-                None => buffer.push_str(&path.to_string_lossy()),
-                Some(os_str) => buffer.push_str(&os_str.to_string_lossy()),
-            }
+            buffer.push_str(&path.to_string_lossy());
             buffer.push_str("\n");
         }
         buffer
@@ -110,22 +109,65 @@ fn main() -> io::Result<()> {
     for (line_before, line_after) in before.lines().zip(after.lines()) {
         linewise_diff(line_before, line_after)
     }
+    match Question::new("Do you want to continue?")
+        .yes_no()
+        .until_acceptable()
+        .default(Answer::YES)
+        .show_defaults()
+        .ask()
+    {
+        Some(Answer::YES) | None => {
+            println!("You have chosen yes")
+        }
+        Some(Answer::NO) => {
+            println!("No changes made")
+        }
+        Some(Answer::RESPONSE(_)) => {
+            unreachable!("Yes/No Question requires Yes/No response")
+        }
+    }
     Ok(())
 }
 
 fn linewise_diff(line_before: &str, line_after: &str) {
     let mut line_diff = String::new();
-    line_diff.reserve(line_before.len());
     let chunk_vec = dissimilar::diff(&line_before, &line_after);
-    for chunk in chunk_vec {
-        match chunk {
-            Chunk::Equal(s) => line_diff.push_str(&format!("{}", s.normal())),
-            Chunk::Delete(s) => line_diff.push_str(&format!("{}", s.red().strikethrough())),
-            Chunk::Insert(s) => line_diff.push_str(&format!("{}", s.green())),
+
+    // The padding is calculated manually because ANSI escape codes interfere with
+    // formatting strings
+    // Eg. These bars will not appear vertically aligned for formatted text
+    //
+    // println!("{:<55} |", &format!("{}", "text"));
+    // println!("{:<55} |", &format!("{}", "text".normal()));
+    // println!("{:<55} |", &format!("{}", "text".red()));
+    // println!("{:<55} |", &format!("{}", "text".red().strikethrough()));
+    let diff_len: isize = chunk_vec
+        .iter()
+        .map(|s| match s {
+            Chunk::Equal(s) => s.chars().count(),
+            Chunk::Delete(s) => s.chars().count(),
+            Chunk::Insert(s) => s.chars().count(),
+        } as isize)
+        .sum();
+    let padding_len = std::cmp::max(55 - diff_len, 0) as usize;
+    let padding = std::iter::repeat(' ').take(padding_len).collect::<String>();
+
+    let comment;
+    match chunk_vec[..] {
+        [Chunk::Equal(s)] => {
+            line_diff.push_str(&format!("{}", s.normal()));
+            comment = "(unchanged)".italic().dimmed()
+        }
+        _ => {
+            for chunk in chunk_vec {
+                match chunk {
+                    Chunk::Equal(s) => line_diff.push_str(&format!("{}", s.normal())),
+                    Chunk::Delete(s) => line_diff.push_str(&format!("{}", s.red().strikethrough())),
+                    Chunk::Insert(s) => line_diff.push_str(&format!("{}", s.green())),
+                }
+            }
+            comment = "(edited)".italic()
         }
     }
-    if line_diff.len() == line_before.len() {
-        line_diff = format!("{:<55}  {}", line_diff, "(unchanged)".italic().dimmed());
-    }
-    println!("{}", line_diff)
+    println!("  {}{}  {}", line_diff, padding, comment)
 }
