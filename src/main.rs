@@ -2,8 +2,6 @@ use std::convert::TryFrom;
 use std::fs;
 use std::io;
 use std::io::Read;
-use std::io::Stdin;
-use std::path::PathBuf;
 use std::process::Command;
 
 use atty::Stream;
@@ -12,52 +10,13 @@ use clap::Arg;
 use colored::Colorize;
 use dissimilar;
 use dissimilar::Chunk;
-use ignore::Walk;
 use ignore::WalkBuilder;
 use question::Answer;
 use question::Question;
 
-#[derive(Debug)]
-struct FileList {
-    filenames: Vec<PathBuf>,
-}
+mod filelist;
 
-impl FileList {
-    fn as_string(&self) -> String {
-        let mut buffer = String::new();
-        for path in self.filenames.iter() {
-            buffer.push_str(&path.to_string_lossy());
-            buffer.push_str("\n");
-        }
-        buffer
-    }
-}
-
-impl TryFrom<Walk> for FileList {
-    type Error = ignore::Error;
-
-    fn try_from(walk: Walk) -> Result<Self, Self::Error> {
-        let (len, _) = walk.size_hint();
-        let mut filenames = Vec::with_capacity(len);
-        for dir_entry in walk {
-            filenames.push(dir_entry?.into_path());
-        }
-        Ok(FileList { filenames })
-    }
-}
-
-impl TryFrom<Stdin> for FileList {
-    type Error = io::Error;
-
-    /// Limitation: Non-Unicode filenames cannot be processed
-    fn try_from(mut stdin: Stdin) -> Result<Self, Self::Error> {
-        let mut buf = String::new();
-        stdin.read_to_string(&mut buf)?;
-        let mut filenames = buf.split('\n').map(PathBuf::from).collect::<Vec<_>>();
-        filenames.retain(|s| s != &PathBuf::from(""));
-        Ok(FileList { filenames })
-    }
-}
+static TEMP_FILE: &'static str = "/tmp/rename-with";
 
 fn main() -> io::Result<()> {
     let matches = App::new("rename-with")
@@ -70,44 +29,41 @@ fn main() -> io::Result<()> {
                 .required(true)
                 .index(1),
         )
-        .arg(
-            Arg::with_name("hidden")
-                .long("hidden")
-                .takes_value(false)
-                .help("Search hidden files and directories"),
-        )
         .get_matches();
 
     let file_list = {
         if atty::is(Stream::Stdin) {
-            FileList::try_from(
-                WalkBuilder::new("./")
-                    .hidden(!matches.is_present("hidden"))
-                    .build(),
-            )
-            .expect("Error Reading Directory")
+            filelist::FileList::try_from(WalkBuilder::new("./").build())
+                .expect("Error Reading Directory")
         } else {
-            FileList::try_from(io::stdin()).expect("Error Reading StdIn")
+            filelist::FileList::try_from(io::stdin()).expect("Error Reading StdIn")
         }
     };
     let before = file_list.as_string();
-    fs::write("/tmp/rename-with", &before)?;
+    fs::write(TEMP_FILE, &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
     Command::new("/usr/bin/sh")
         .arg("-c")
-        .arg(format!("{} /tmp/rename-with", editor))
+        .arg(format!("{} {}", editor, TEMP_FILE))
         .spawn()
         .expect("Error: Failed to run editor")
         .wait()
         .expect("Error: Editor returned a non-zero status");
 
-    let mut file = fs::File::open("/tmp/rename-with")?;
+    let mut file = fs::File::open(TEMP_FILE)?;
     let mut after = String::new();
     file.read_to_string(&mut after)?;
+    after.truncate(after.trim_end().len());
 
-    for (line_before, line_after) in before.lines().zip(after.lines()) {
-        linewise_diff(line_before, line_after)
+    let mut line_before = before.lines();
+    let mut line_after = after.lines();
+    loop {
+        match (line_before.next(), line_after.next()) {
+            (Some(b), Some(a)) => linewise_diff(b, a),
+            (Some(b), None) => linewise_diff(b, ""),
+            (None, _) => break,
+        }
     }
     match Question::new("Do you want to continue?")
         .yes_no()
@@ -117,13 +73,13 @@ fn main() -> io::Result<()> {
         .ask()
     {
         Some(Answer::YES) | None => {
-            println!("You have chosen yes")
+            println!("Applying changes")
         }
         Some(Answer::NO) => {
             println!("No changes made")
         }
         Some(Answer::RESPONSE(_)) => {
-            unreachable!("Yes/No Question requires Yes/No response")
+            unreachable!("Yes/No Question requires Yes/No answer")
         }
     }
     Ok(())
@@ -166,7 +122,7 @@ fn linewise_diff(line_before: &str, line_after: &str) {
                     Chunk::Insert(s) => line_diff.push_str(&format!("{}", s.green())),
                 }
             }
-            comment = "(edited)".italic()
+            comment = "(renamed)".italic()
         }
     }
     println!("  {}{}  {}", line_diff, padding, comment)
