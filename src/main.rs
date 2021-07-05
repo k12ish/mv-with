@@ -7,7 +7,6 @@ use atty::Stream;
 use clap::App;
 use clap::Arg;
 use colored::Colorize;
-use dissimilar;
 use dissimilar::Chunk;
 use ignore::WalkBuilder;
 use question::Answer;
@@ -15,7 +14,7 @@ use question::Question;
 
 mod filelist;
 
-static TEMP_FILE: &'static str = "/tmp/rename-with";
+static TEMP_FILE: &str = "/tmp/rename-with";
 
 fn main() -> io::Result<()> {
     let matches = App::new("rename-with")
@@ -37,6 +36,9 @@ fn main() -> io::Result<()> {
             filelist::parse_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
+    file_list
+        .validate()
+        .expect("Unable to access file metadata");
     let before = file_list.as_string();
     fs::write(TEMP_FILE, &before)?;
 
