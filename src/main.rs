@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::fs;
 use std::io;
 use std::io::Read;
@@ -33,10 +32,9 @@ fn main() -> io::Result<()> {
 
     let file_list = {
         if atty::is(Stream::Stdin) {
-            filelist::FileList::try_from(WalkBuilder::new("./").build())
-                .expect("Error Reading Directory")
+            filelist::parse_walker(WalkBuilder::new("./").build()).expect("Error Reading Directory")
         } else {
-            filelist::FileList::try_from(io::stdin()).expect("Error Reading StdIn")
+            filelist::parse_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
     let before = file_list.as_string();
