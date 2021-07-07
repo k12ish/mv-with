@@ -12,7 +12,7 @@ use ignore::WalkBuilder;
 use question::Answer;
 use question::Question;
 
-mod filelist;
+mod internals;
 
 static TEMP_FILE: &str = "/tmp/rename-with";
 
@@ -29,17 +29,18 @@ fn main() -> io::Result<()> {
         )
         .get_matches();
 
-    let file_list = {
+    let input_list = {
         if atty::is(Stream::Stdin) {
-            filelist::parse_walker(WalkBuilder::new("./").build()).expect("Error Reading Directory")
+            internals::parse_walker(WalkBuilder::new("./").build())
+                .expect("Error Reading Directory")
         } else {
-            filelist::parse_reader(io::stdin()).expect("Error Reading StdIn")
+            internals::parse_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    file_list
+    input_list
         .validate()
         .expect("Unable to access file metadata");
-    let before = file_list.as_string();
+    let before = input_list.as_string();
     fs::write(TEMP_FILE, &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
