@@ -37,9 +37,6 @@ fn main() -> io::Result<()> {
             internals::parse_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    input_list
-        .validate()
-        .expect("Unable to access file metadata");
     let before = input_list.as_string();
     fs::write(TEMP_FILE, &before)?;
 
