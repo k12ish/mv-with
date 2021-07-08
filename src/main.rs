@@ -29,7 +29,7 @@ fn main() -> io::Result<()> {
         )
         .get_matches();
 
-    let input_list = {
+    let origin_list = {
         if atty::is(Stream::Stdin) {
             internals::parse_walker(WalkBuilder::new("./").build())
                 .expect("Error Reading Directory")
@@ -37,7 +37,7 @@ fn main() -> io::Result<()> {
             internals::parse_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    let before = input_list.as_string();
+    let before = origin_list.as_string();
     fs::write(TEMP_FILE, &before)?;
 
     let editor = matches.value_of("EDITOR").unwrap();
