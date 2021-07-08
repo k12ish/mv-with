@@ -6,8 +6,12 @@ use std::io::BufReader;
 use std::io::Read;
 use std::path::PathBuf;
 
+use colored::Colorize;
+use dissimilar::Chunk;
 use ignore::Walk;
 
+/// `FileOrigin` instances are guarenteed to correspond to a file
+/// They are wrappers of the `PathBuf` type (akin to an `OsString`)
 #[derive(Debug)]
 pub struct FileOrigin(PathBuf);
 
@@ -33,10 +37,6 @@ impl OriginList {
         }
         buffer
     }
-
-    pub fn inner(self) -> Vec<FileOrigin> {
-        self.filenames
-    }
 }
 
 pub fn parse_walker(walk: Walk) -> Result<OriginList, Box<dyn std::error::Error>> {
@@ -47,8 +47,7 @@ pub fn parse_walker(walk: Walk) -> Result<OriginList, Box<dyn std::error::Error>
 }
 
 pub fn parse_reader<R: Read>(reader: R) -> Result<OriginList, io::Error> {
-    let buf_reader = BufReader::new(reader);
-    let filenames = buf_reader
+    let filenames = BufReader::new(reader)
         .lines()
         .map(|r| r.map(|s| FileOrigin::try_from(PathBuf::from(s))))
         .collect::<Result<Result<Vec<_>, _>, _>>()??;
@@ -60,18 +59,72 @@ pub struct RenameRequest {
     to: PathBuf,
 }
 
+impl RenameRequest {
+    fn diff(&self) {
+        let line_before = self.from.0.to_string_lossy();
+        let line_after = self.to.to_string_lossy();
+        let mut line_diff = String::new();
+        let chunk_vec = dissimilar::diff(&line_before, &line_after);
+
+        // The padding is calculated manually because ANSI escape codes interfere with
+        // formatting strings
+        // Eg. These bars will not appear vertically aligned for formatted text
+        //
+        // println!("{:<55} |", &format!("{}", "text"));
+        // println!("{:<55} |", &format!("{}", "text".normal()));
+        // println!("{:<55} |", &format!("{}", "text".red()));
+        // println!("{:<55} |", &format!("{}", "text".red().strikethrough()));
+        let diff_len: isize = chunk_vec
+            .iter()
+            .map(|s| match s {
+                Chunk::Equal(s) => s.chars().count(),
+                Chunk::Delete(s) => s.chars().count(),
+                Chunk::Insert(s) => s.chars().count(),
+            } as isize)
+            .sum();
+        let padding_len = std::cmp::max(55 - diff_len, 0) as usize;
+        let padding = std::iter::repeat(' ').take(padding_len).collect::<String>();
+
+        let comment;
+        match chunk_vec[..] {
+            [Chunk::Equal(s)] => {
+                line_diff.push_str(&format!("{}", s.normal()));
+                comment = "(unchanged)".italic().dimmed()
+            }
+            _ => {
+                for chunk in chunk_vec {
+                    match chunk {
+                        Chunk::Equal(s) => line_diff.push_str(&format!("{}", s.normal())),
+                        Chunk::Delete(s) => {
+                            line_diff.push_str(&format!("{}", s.red().strikethrough()))
+                        }
+                        Chunk::Insert(s) => line_diff.push_str(&format!("{}", s.green())),
+                    }
+                }
+                comment = "(renamed)".italic()
+            }
+        }
+        println!("  {}{}  {}", line_diff, padding, comment)
+    }
+}
+
 pub fn process_changes<T: Read>(origin_list: OriginList, target_list: T) -> Result<(), io::Error> {
     let mut target = BufReader::new(target_list).lines();
-    for origin in origin_list.inner() {
-        match target.next() {
-            Some(t) => compare_lines(origin, t?),
-            None => compare_lines(origin, String::new()),
-        }
+    let mut vec = Vec::new();
+    for origin in origin_list.filenames {
+        let request = {
+            match target.next() {
+                Some(t) => compare_lines(origin, PathBuf::from(t?)),
+                None => compare_lines(origin, PathBuf::new()),
+            }
+        };
+        request.diff();
+        vec.push(request);
     }
 
     Ok(())
 }
 
-fn compare_lines(mut from: FileOrigin, mut to: String) {
-    unimplemented!()
+fn compare_lines(from: FileOrigin, to: PathBuf) -> RenameRequest {
+    RenameRequest { from, to }
 }
