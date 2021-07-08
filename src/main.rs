@@ -10,6 +10,7 @@ use question::Answer;
 use question::Question;
 
 mod internals;
+use internals::OriginList;
 
 static TEMP_FILE: &str = "/tmp/rename-with";
 
@@ -28,10 +29,10 @@ fn main() -> io::Result<()> {
 
     let file_origins = {
         if atty::is(Stream::Stdin) {
-            internals::parse_walker(WalkBuilder::new("./").build())
+            OriginList::from_walker(WalkBuilder::new("./").build())
                 .expect("Error Reading Directory")
         } else {
-            internals::parse_reader(io::stdin()).expect("Error Reading StdIn")
+            OriginList::from_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
     fs::write(TEMP_FILE, &file_origins.as_string())?;
