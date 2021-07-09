@@ -77,20 +77,14 @@ pub struct RenameRequest {
 }
 
 impl RenameRequest {
-    fn diff(&self) {
+    fn diff(&self) -> String {
         let line_before = self.from.0.to_string_lossy();
         let line_after = self.to.to_string_lossy();
         let mut line_diff = String::new();
         let chunk_vec = dissimilar::diff(&line_before, &line_after);
 
         // The padding is calculated manually because ANSI escape codes interfere with
-        // formatting strings
-        // Eg. These bars will not appear vertically aligned for formatted text
-        //
-        // println!("{:<55} |", &format!("{}", "text"));
-        // println!("{:<55} |", &format!("{}", "text".normal()));
-        // println!("{:<55} |", &format!("{}", "text".red()));
-        // println!("{:<55} |", &format!("{}", "text".red().strikethrough()));
+        // formatting strings, so "{:<55}" produces inconsistent alignment
         let diff_len: isize = chunk_vec
             .iter()
             .map(|s| match s {
@@ -121,7 +115,7 @@ impl RenameRequest {
                 comment = "(renamed)".italic()
             }
         }
-        println!("  {}{}  {}", line_diff, padding, comment)
+        format!("  {}{}  {}", line_diff, padding, comment)
     }
 }
 
@@ -135,7 +129,7 @@ pub fn process_changes<T: Read>(origin_list: OriginList, target_list: T) -> Resu
                 None => compare_lines(origin, PathBuf::new()),
             }
         };
-        request.diff();
+        println!("{}", request.diff());
         vec.push(request);
     }
 

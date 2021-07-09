@@ -12,6 +12,7 @@ use question::Question;
 mod internals;
 use internals::OriginList;
 
+// TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/rename-with";
 
 fn main() -> io::Result<()> {
@@ -46,8 +47,8 @@ fn main() -> io::Result<()> {
         .wait()
         .expect("Error: Editor returned a non-zero status");
 
-    let file = fs::File::open(TEMP_FILE)?;
-    internals::process_changes(file_origins, file)?;
+    let file_dest = fs::File::open(TEMP_FILE)?;
+    internals::process_changes(file_origins, file_dest)?;
 
     match Question::new("Do you want to continue?")
         .yes_no()
