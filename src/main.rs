@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::process::Command;
@@ -28,27 +29,31 @@ fn main() -> io::Result<()> {
         )
         .get_matches();
 
+    // TODO: Graceful error handling for empty stdin / dir
     let file_origins = {
         if atty::is(Stream::Stdin) {
-            OriginList::from_walker(WalkBuilder::new("./").build())
-                .expect("Error Reading Directory")
+            // OriginList::from_walker(WalkBuilder::new("./").build())
+            // .expect("Error Reading Directory")
         } else {
-            OriginList::from_reader(io::stdin()).expect("Error Reading StdIn")
+            // OriginList::from_reader(io::stdin()).expect("Error Reading StdIn")
         }
     };
-    fs::write(TEMP_FILE, &file_origins.as_string())?;
+    // fs::write(TEMP_FILE, &file_origins.as_string())?;
 
     let editor = matches.value_of("EDITOR").unwrap();
-    Command::new("/usr/bin/sh")
+    let mut command = OsString::new();
+    command.push(editor);
+    command.push(" ");
+    command.push(TEMP_FILE);
+    let status = Command::new("/usr/bin/sh")
         .arg("-c")
-        .arg(format!("{} {}", editor, TEMP_FILE))
+        .arg(command)
         .spawn()
         .expect("Error: Failed to run editor")
         .wait()
         .expect("Error: Editor returned a non-zero status");
 
-    let file_dest = fs::File::open(TEMP_FILE)?;
-    internals::process_changes(file_origins, file_dest)?;
+    assert!(status.success());
 
     match Question::new("Do you want to continue?")
         .yes_no()
