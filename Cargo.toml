@@ -12,9 +12,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.3"
 atty = "0.2.14"
-ignore = "0.4.18"
+camino = "1.0.4"
+clap = "2.33.3"
 dissimilar = "1.0.2"
-colored = "2.0.0"
+ignore = "0.4.18"
 question = "0.2.2"
+self_cell = "0.9.0"

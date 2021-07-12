@@ -11,7 +11,6 @@ use question::Answer;
 use question::Question;
 
 mod internals;
-use internals::OriginList;
 
 // TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/rename-with";
