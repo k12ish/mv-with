@@ -19,8 +19,6 @@ self_cell!(
     impl {Debug, Eq, PartialEq}
 );
 
-type BoxedError = Box<dyn Error>;
-
 impl FileList {
     pub fn parse_walker(walker: Walk) -> Self {
         let filenames = walker

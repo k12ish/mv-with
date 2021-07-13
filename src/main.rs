@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::io;
 use std::process::Command;
+use std::process::Stdio;
 
 use atty::Stream;
 use clap::App;
@@ -43,15 +44,28 @@ fn main() -> io::Result<()> {
     command.push(editor);
     command.push(" ");
     command.push(TEMP_FILE);
-    let status = Command::new("/usr/bin/sh")
+    let output = Command::new("/usr/bin/sh")
         .arg("-c")
         .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .expect("Error: Failed to run editor")
-        .wait()
-        .expect("Error: Editor returned a non-zero status");
+        .expect("Failed to run bash")
+        .wait_with_output()
+        .unwrap();
 
-    assert!(status.success());
+    //TODO: Better error handling when editor is misspelt
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        match output.status.code() {
+            Some(127) => panic!(
+                "Bash returned exit status 127: Did you misspell {}?",
+                editor
+            ),
+            _ => panic!("Bash returned unsuccessful exit status: {}", stderr),
+        }
+    }
 
     match Question::new("Do you want to continue?")
         .yes_no()
