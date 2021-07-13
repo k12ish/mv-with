@@ -1,5 +1,4 @@
 use std::ffi::OsString;
-use std::fs;
 use std::io;
 use std::process::Command;
 
@@ -11,6 +10,7 @@ use question::Answer;
 use question::Question;
 
 mod internals;
+use internals::FileList;
 
 // TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/rename-with";
@@ -31,10 +31,9 @@ fn main() -> io::Result<()> {
     // TODO: Graceful error handling for empty stdin / dir
     let file_origins = {
         if atty::is(Stream::Stdin) {
-            // OriginList::from_walker(WalkBuilder::new("./").build())
-            // .expect("Error Reading Directory")
+            FileList::parse_walker(WalkBuilder::new("./").build())
         } else {
-            // OriginList::from_reader(io::stdin()).expect("Error Reading StdIn")
+            FileList::parse_reader(io::stdin())
         }
     };
     // fs::write(TEMP_FILE, &file_origins.as_string())?;
