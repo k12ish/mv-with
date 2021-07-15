@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::ffi::OsString;
 use std::io;
 use std::process::Command;
@@ -16,7 +17,7 @@ use internals::FileList;
 // TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/rename-with";
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("rename-with")
         .version("0.1")
         .author("Krish S. <k4krish@gmail.com>")
@@ -37,18 +38,14 @@ fn main() -> io::Result<()> {
             FileList::parse_reader(io::stdin())
         }
     };
+    file_origins.confirm_files_exist()?;
     // fs::write(TEMP_FILE, &file_origins.as_string())?;
 
     let editor = matches.value_of("EDITOR").unwrap();
-    let mut command = OsString::new();
-    command.push(editor);
-    command.push(" ");
-    command.push(TEMP_FILE);
+    let command = format!("{} {}", editor, TEMP_FILE);
     let output = Command::new("/usr/bin/sh")
         .arg("-c")
         .arg(command)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to run bash")

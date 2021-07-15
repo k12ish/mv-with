@@ -44,6 +44,16 @@ impl FileList {
             FileNames(s.lines().map(|s| Utf8Path::new(s)).collect())
         })
     }
+
+    pub fn confirm_files_exist(&self) -> Result<(), String> {
+        let FileNames(list) = self.borrow_dependent();
+        for file in list {
+            if !file.exists() {
+                return Err(format!("File '{}' does not exist", file));
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct Origin;
