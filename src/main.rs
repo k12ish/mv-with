@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::ffi::OsString;
+use std::fs;
 use std::io;
 use std::process::Command;
 use std::process::Stdio;
@@ -7,15 +7,26 @@ use std::process::Stdio;
 use atty::Stream;
 use clap::App;
 use clap::Arg;
+use codespan_reporting::files::SimpleFile;
+use codespan_reporting::term;
+use codespan_reporting::term::termcolor::ColorChoice;
+use codespan_reporting::term::termcolor::StandardStream;
+use codespan_reporting::term::Config;
 use ignore::WalkBuilder;
+use lazy_static::lazy_static;
 use question::Answer;
 use question::Question;
 
 mod internals;
-use internals::FileList;
+use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/rename-with";
+
+lazy_static! {
+    static ref WRITER: StandardStream = StandardStream::stderr(ColorChoice::Always);
+    static ref CONFIG: Config = Config::default();
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("rename-with")
@@ -39,13 +50,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     file_origins.confirm_files_exist()?;
-    // fs::write(TEMP_FILE, &file_origins.as_string())?;
+    fs::write(TEMP_FILE, file_origins.as_str())?;
 
     let editor = matches.value_of("EDITOR").unwrap();
-    let command = format!("{} {}", editor, TEMP_FILE);
+    let command = format!("{} {}", &editor, TEMP_FILE);
     let output = Command::new("/usr/bin/sh")
         .arg("-c")
-        .arg(command)
+        .arg(&command)
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to run bash")
@@ -53,14 +64,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     //TODO: Better error handling when editor is misspelt
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        match output.status.code() {
-            Some(127) => panic!(
-                "Bash returned exit status 127: Did you misspell {}?",
-                editor
-            ),
-            _ => panic!("Bash returned unsuccessful exit status: {}", stderr),
+    match output.status.code() {
+        Some(127) => {
+            let file = SimpleFile::new("", &command);
+            let err = UserError::MisspelledBashCommand(&editor);
+            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report())?;
+        }
+        _ => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                panic!("Bash returned unsuccessful exit status: {}", stderr)
+            }
         }
     }
 

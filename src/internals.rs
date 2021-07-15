@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::ffi::OsString;
 use std::io::Read;
 
@@ -45,6 +44,10 @@ impl FileList {
         })
     }
 
+    pub fn as_str(&self) -> &str {
+        self.borrow_owner()
+    }
+
     pub fn confirm_files_exist(&self) -> Result<(), String> {
         let FileNames(list) = self.borrow_dependent();
         for file in list {
@@ -74,5 +77,21 @@ impl ConfirmFilenames<Origin> for FileList {
     fn validate(&self) -> Result<(), ()> {
         println!("Confirming Files exist");
         Ok(())
+    }
+}
+
+use codespan_reporting::diagnostic::{Diagnostic, Label};
+
+pub enum UserError<'a> {
+    MisspelledBashCommand(&'a str),
+}
+
+impl<'a> UserError<'a> {
+    pub fn report(&self) -> Diagnostic<()> {
+        match self {
+            UserError::MisspelledBashCommand(slice) => {
+                Diagnostic::error().with_message(format!("cannot execute `{}`", slice))
+            }
+        }
     }
 }

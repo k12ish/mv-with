@@ -211,6 +211,7 @@ dependencies = [
  "codespan-reporting",
  "dissimilar",
  "ignore",
+ "lazy_static",
  "question",
  "self_cell",
 ]
