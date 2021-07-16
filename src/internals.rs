@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::io::Read;
 
 use camino::Utf8Path;
+use codespan_reporting::diagnostic::Label;
 use ignore::Walk;
 use self_cell::self_cell;
 
@@ -59,39 +60,24 @@ impl FileList {
     }
 }
 
-pub struct Origin;
-pub struct Destination;
+pub mod errors {
+    use codespan_reporting::diagnostic::{Diagnostic, Label};
 
-pub trait ConfirmFilenames<T> {
-    fn validate(&self) -> Result<(), ()>;
-}
-
-impl ConfirmFilenames<Destination> for FileList {
-    fn validate(&self) -> Result<(), ()> {
-        println!("Confirming Files do not exist");
-        Ok(())
+    pub trait CodespanError {
+        fn report(self) -> Diagnostic<()>;
     }
-}
 
-impl ConfirmFilenames<Origin> for FileList {
-    fn validate(&self) -> Result<(), ()> {
-        println!("Confirming Files exist");
-        Ok(())
+    pub struct MisspelledBashCommand<'a>(pub &'a str);
+    impl<'a> CodespanError for MisspelledBashCommand<'a> {
+        fn report(self) -> Diagnostic<()> {
+            Diagnostic::error().with_message(format!("cannot execute `{}`", self.0))
+        }
     }
-}
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
-
-pub enum UserError<'a> {
-    MisspelledBashCommand(&'a str),
-}
-
-impl<'a> UserError<'a> {
-    pub fn report(&self) -> Diagnostic<()> {
-        match self {
-            UserError::MisspelledBashCommand(slice) => {
-                Diagnostic::error().with_message(format!("cannot execute `{}`", slice))
-            }
+    pub struct FileDoesNotExist(pub Label<()>);
+    impl CodespanError for FileDoesNotExist {
+        fn report(self) -> Diagnostic<()> {
+            Diagnostic::error().with_labels(self.0)
         }
     }
 }

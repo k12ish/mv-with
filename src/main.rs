@@ -18,6 +18,7 @@ use question::Answer;
 use question::Question;
 
 mod internals;
+use internals::errors::*;
 use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
@@ -63,11 +64,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .wait_with_output()
         .unwrap();
 
-    //TODO: Better error handling when editor is misspelt
     match output.status.code() {
         Some(127) => {
             let file = SimpleFile::new("", &command);
-            let err = UserError::MisspelledBashCommand(&editor);
+            let err = errors::MisspelledBashCommand(&editor);
             term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report())?;
         }
         _ => {
