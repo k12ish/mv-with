@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fs;
 use std::io;
 use std::process::Command;
@@ -29,7 +28,12 @@ lazy_static! {
     static ref CONFIG: Config = Config::default();
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    let exit_code = real_main();
+    std::process::exit(exit_code);
+}
+
+fn real_main() -> i32 {
     let matches = App::new("rename-with")
         .version("0.1")
         .author("Krish S. <k4krish@gmail.com>")
@@ -41,7 +45,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .index(1),
         )
         .get_matches();
-
     // TODO: Graceful error handling for empty stdin / dir
     let file_origins = {
         if atty::is(Stream::Stdin) {
@@ -50,8 +53,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             FileList::parse_reader(io::stdin())
         }
     };
-    file_origins.confirm_files_exist()?;
-    fs::write(TEMP_FILE, file_origins.as_str())?;
+
+    match file_origins.confirm_files_exist() {
+        Err(err) => {
+            let file = SimpleFile::new("StdIn", file_origins.as_str());
+            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+            return 1;
+        }
+        _ => {}
+    };
+    fs::write(TEMP_FILE, file_origins.as_str()).unwrap();
 
     let editor = matches.value_of("EDITOR").unwrap();
     let command = format!("{} {}", &editor, TEMP_FILE);
@@ -68,7 +79,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(127) => {
             let file = SimpleFile::new("", &command);
             let err = errors::MisspelledBashCommand(&editor);
-            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report())?;
+            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+            return 1;
         }
         _ => {
             if !output.status.success() {
@@ -95,5 +107,5 @@ fn main() -> Result<(), Box<dyn Error>> {
             unreachable!("Yes/No Question requires Yes/No answer")
         }
     }
-    Ok(())
+    0
 }

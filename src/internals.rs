@@ -1,3 +1,4 @@
+use core::ops::Range;
 use std::ffi::OsString;
 use std::io::Read;
 
@@ -49,14 +50,47 @@ impl FileList {
         self.borrow_owner()
     }
 
-    pub fn confirm_files_exist(&self) -> Result<(), String> {
+    pub fn confirm_files_exist(&self) -> Result<(), errors::FileDoesNotExist> {
         let FileNames(list) = self.borrow_dependent();
         for file in list {
             if !file.exists() {
-                return Err(format!("File '{}' does not exist", file));
+                return Err(errors::FileDoesNotExist(
+                    Label::primary((), self.substring_index(file))
+                        .with_message("File does not exist"),
+                ));
             }
         }
         Ok(())
+    }
+
+    fn substring_index<T: AsRef<str>>(&self, substring: T) -> Range<usize> {
+        let string_ptr: *const u8 = self.as_str().as_ptr();
+        let substring_ptr: *const u8 = substring.as_ref().as_ptr();
+        let start;
+
+        // RATIONALE:
+        //   Methods like string.find(substring) are ambigous since there may be
+        //   multiple occurences of a substring.
+        //
+        //   Using the underlying pointer is a cheap and easy to reason about,
+        //   we simply find the offset between the substring pointer and the
+        //   pointer to the parent string
+        //
+        //           `We all scream for ice cream`
+        //            ^                     ^
+        //     String pointer         substring pointer
+        //
+        // SAFETY:
+        //   Both pointers are in bounds and a multiple of 8 bits apart.
+        //   This operation is equivalent to `ptr_into_vec.offset_from(vec.as_ptr())`,
+        //   so it will never "wrap around" the address space.
+
+        unsafe { start = substring_ptr.offset_from(string_ptr) as usize }
+
+        Range {
+            start,
+            end: start + substring.as_ref().len(),
+        }
     }
 }
 
@@ -77,7 +111,9 @@ pub mod errors {
     pub struct FileDoesNotExist(pub Label<()>);
     impl CodespanError for FileDoesNotExist {
         fn report(self) -> Diagnostic<()> {
-            Diagnostic::error().with_labels(self.0)
+            Diagnostic::error()
+                .with_message("file does not exist")
+                .with_labels(vec![self.0])
         }
     }
 }
