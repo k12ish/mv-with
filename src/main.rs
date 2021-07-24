@@ -1,7 +1,6 @@
 use std::fs;
 use std::io;
 use std::process::Command;
-use std::process::Stdio;
 
 use atty::Stream;
 use clap::App;
@@ -11,13 +10,11 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::ColorChoice;
 use codespan_reporting::term::termcolor::StandardStream;
 use codespan_reporting::term::Config;
+use dialoguer::Confirm;
 use ignore::WalkBuilder;
 use lazy_static::lazy_static;
-use question::Answer;
-use question::Question;
 
 mod internals;
-use internals::errors::*;
 use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
@@ -45,67 +42,66 @@ fn real_main() -> i32 {
                 .index(1),
         )
         .get_matches();
-    // TODO: Graceful error handling for empty stdin / dir
+
     let file_origins = {
-        if atty::is(Stream::Stdin) {
-            FileList::parse_walker(WalkBuilder::new("./").build())
-        } else {
-            FileList::parse_reader(io::stdin())
+        match {
+            if atty::is(Stream::Stdin) {
+                FileList::parse_walker(WalkBuilder::new("./").build())
+            } else {
+                FileList::parse_reader(io::stdin().lock())
+            }
+        } {
+            Ok(file_origins) => file_origins,
+            // Graceful error handling for empty stdin / directory
+            Err(err) => {
+                let file = SimpleFile::new("", "");
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+                return 1;
+            }
         }
     };
 
-    match file_origins.confirm_files_exist() {
-        Err(err) => {
-            let file = SimpleFile::new("StdIn", file_origins.as_str());
-            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
-            return 1;
-        }
-        _ => {}
+    if let Err(err) = file_origins.confirm_files_exist() {
+        let file = SimpleFile::new("StdIn", file_origins.as_str());
+        term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+        return 1;
     };
+
     fs::write(TEMP_FILE, file_origins.as_str()).unwrap();
 
     let editor = matches.value_of("EDITOR").unwrap();
     let command = format!("{} {}", &editor, TEMP_FILE);
-    let output = Command::new("/usr/bin/sh")
+    let status = Command::new("/usr/bin/sh")
         .arg("-c")
         .arg(&command)
-        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to run bash")
-        .wait_with_output()
+        .wait()
         .unwrap();
 
-    match output.status.code() {
+    match status.code() {
         Some(127) => {
             let file = SimpleFile::new("", &command);
-            let err = errors::MisspelledBashCommand(&editor);
+            let err = errors::MisspelledBashCommand(editor);
             term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
             return 1;
         }
         _ => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                panic!("Bash returned unsuccessful exit status: {}", stderr)
+            if !status.success() {
+                panic!("Bash returned unsuccessful exit status")
             }
         }
     }
 
-    match Question::new("Do you want to continue?")
-        .yes_no()
-        .until_acceptable()
-        .default(Answer::YES)
-        .show_defaults()
-        .ask()
+    if Confirm::new()
+        .with_prompt("Do you want to continue?")
+        .interact()
+        .unwrap()
     {
-        Some(Answer::YES) | None => {
-            println!("Applying changes")
-        }
-        Some(Answer::NO) => {
-            println!("No changes made")
-        }
-        Some(Answer::RESPONSE(_)) => {
-            unreachable!("Yes/No Question requires Yes/No answer")
-        }
+        println!("Looks like you want to continue");
+    } else {
+        println!("nevermind then :(");
     }
+
     0
 }
