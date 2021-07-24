@@ -20,7 +20,7 @@ self_cell!(
     impl {Debug, Eq, PartialEq}
 );
 
-type ParseResult<T> = Result<T, Box<dyn errors::EmptyFileListError>>;
+type ParseResult<T> = Result<T, Box<dyn errors::EmptyListError>>;
 
 impl FileList {
     pub fn parse_walker(walker: Walk) -> ParseResult<Self> {
@@ -30,7 +30,13 @@ impl FileList {
             .collect::<Result<Result<Vec<String>, OsString>, _>>()
             .expect("Cannot Read Directory")
             .expect("Non-Utf8 path not supported");
-        Ok(FileList::from_string(filenames.join("\n")))
+        let buf = filenames.join("\n");
+
+        use errors::{EmptyDirectory, EmptyListError};
+        FileList::from_string(buf).map_err(|_| {
+            let boxed_err: Box<dyn EmptyListError> = Box::new(EmptyDirectory);
+            boxed_err
+        })
     }
 
     pub fn parse_reader<T: Read>(mut reader: T) -> ParseResult<Self> {
@@ -39,13 +45,22 @@ impl FileList {
             .read_to_string(&mut buf)
             .expect("Non-Utf8 path not supported");
         buf.truncate(buf.trim_end().len());
-        Ok(FileList::from_string(buf))
+
+        use errors::{EmptyListError, EmptyStdIn};
+        FileList::from_string(buf).map_err(|_| {
+            let boxed_err: Box<dyn EmptyListError> = Box::new(EmptyStdIn);
+            boxed_err
+        })
     }
 
-    fn from_string(string: String) -> Self {
-        FileList::new(string, |s| {
-            FileNames(s.lines().map(|s| Utf8Path::new(s)).collect())
-        })
+    fn from_string(string: String) -> Result<Self, ()> {
+        if string.trim().is_empty() {
+            Err(())
+        } else {
+            Ok(FileList::new(string, |s| {
+                FileNames(s.lines().map(|s| Utf8Path::new(s)).collect())
+            }))
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -54,15 +69,20 @@ impl FileList {
 
     pub fn confirm_files_exist(&self) -> Result<(), errors::FileDoesNotExist> {
         let FileNames(list) = self.borrow_dependent();
+        let mut labels = Vec::new();
         for file in list {
             if !file.exists() {
-                return Err(errors::FileDoesNotExist(
+                labels.push(
                     Label::primary((), self.substring_index(file))
                         .with_message("File does not exist"),
-                ));
+                );
             }
         }
-        Ok(())
+        if labels.is_empty() {
+            Ok(())
+        } else {
+            Err(errors::FileDoesNotExist(labels))
+        }
     }
 
     fn substring_index<T: AsRef<str>>(&self, substring: T) -> Range<usize> {
@@ -114,12 +134,12 @@ pub mod errors {
     /// ```bash
     /// $ echo invalid_filename | rename-with vim
     /// ```
-    pub struct FileDoesNotExist(pub Label<()>);
+    pub struct FileDoesNotExist(pub Vec<Label<()>>);
     impl FileDoesNotExist {
         pub fn report(self) -> Diagnostic<()> {
             Diagnostic::error()
                 .with_message("file does not exist")
-                .with_labels(vec![self.0])
+                .with_labels(self.0)
         }
     }
 
@@ -127,19 +147,19 @@ pub mod errors {
     /// ```bash
     /// $ echo | rename-with vim
     /// ```
-    pub trait EmptyFileListError {
+    pub trait EmptyListError {
         fn report(&self) -> Diagnostic<()>;
     }
 
     pub struct EmptyStdIn;
-    impl EmptyFileListError for EmptyStdIn {
+    impl EmptyListError for EmptyStdIn {
         fn report(&self) -> Diagnostic<()> {
             Diagnostic::warning().with_message("StdIn is empty")
         }
     }
 
     pub struct EmptyDirectory;
-    impl EmptyFileListError for EmptyDirectory {
+    impl EmptyListError for EmptyDirectory {
         fn report(&self) -> Diagnostic<()> {
             Diagnostic::warning().with_message("Directory is empty")
         }
