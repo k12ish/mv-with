@@ -121,7 +121,7 @@ pub mod errors {
 
     /// Triggered when you misspell an argument, eg.:
     /// ```bash
-    /// $ rename-with nivm
+    /// $ mv-with nivm
     /// ```
     pub struct MisspelledBashCommand<'a>(pub &'a str);
     impl<'a> MisspelledBashCommand<'a> {
@@ -132,7 +132,7 @@ pub mod errors {
 
     /// Triggered an input file does not exist.
     /// ```bash
-    /// $ echo invalid_filename | rename-with vim
+    /// $ echo invalid_filename | mv-with vim
     /// ```
     pub struct FileDoesNotExist(pub Vec<Label<()>>);
     impl FileDoesNotExist {
@@ -145,7 +145,7 @@ pub mod errors {
 
     /// Triggered the StdIn/Directory is empty
     /// ```bash
-    /// $ echo | rename-with vim
+    /// $ echo | mv-with vim
     /// ```
     pub trait EmptyListError {
         fn report(&self) -> Diagnostic<()>;

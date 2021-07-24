@@ -18,7 +18,7 @@ mod internals;
 use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
-static TEMP_FILE: &str = "/tmp/rename-with";
+static TEMP_FILE: &str = "/tmp/mv-with";
 
 lazy_static! {
     static ref WRITER: StandardStream = StandardStream::stderr(ColorChoice::Always);
@@ -31,7 +31,7 @@ fn main() {
 }
 
 fn real_main() -> i32 {
-    let matches = App::new("rename-with")
+    let matches = App::new("mv-with")
         .version("0.1")
         .author("Krish S. <k4krish@gmail.com>")
         .about("Renames files with your preferred editor")
