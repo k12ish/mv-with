@@ -217,6 +217,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b16bd47d9e329435e309c58469fe0791c2d0d1ba96ec0954152a5ae2b04387dc"
 
 [[package]]
+name = "mv-with"
+version = "0.1.0"
+dependencies = [
+ "atty",
+ "camino",
+ "clap",
+ "codespan-reporting",
+ "dialoguer",
+ "dissimilar",
+ "ignore",
+ "lazy_static",
+ "self_cell",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -301,21 +316,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
 dependencies = [
  "winapi",
-]
-
-[[package]]
-name = "rename-with"
-version = "0.1.0"
-dependencies = [
- "atty",
- "camino",
- "clap",
- "codespan-reporting",
- "dialoguer",
- "dissimilar",
- "ignore",
- "lazy_static",
- "self_cell",
 ]
 
 [[package]]

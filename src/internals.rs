@@ -20,10 +20,8 @@ self_cell!(
     impl {Debug, Eq, PartialEq}
 );
 
-type ParseResult<T> = Result<T, Box<dyn errors::EmptyListError>>;
-
 impl FileList {
-    pub fn parse_walker(walker: Walk) -> ParseResult<Self> {
+    pub fn parse_walker(walker: Walk) -> Result<Self, errors::EmptyWarning> {
         let filenames = walker
             .skip(1)
             .map(|r| r.map(|entry| entry.into_path().into_os_string().into_string()))
@@ -31,31 +29,21 @@ impl FileList {
             .expect("Cannot Read Directory")
             .expect("Non-Utf8 path not supported");
         let buf = filenames.join("\n");
-
-        use errors::{EmptyDirectory, EmptyListError};
-        FileList::from_string(buf).map_err(|_| {
-            let boxed_err: Box<dyn EmptyListError> = Box::new(EmptyDirectory);
-            boxed_err
-        })
+        FileList::from_string(buf)
     }
 
-    pub fn parse_reader<T: Read>(mut reader: T) -> ParseResult<Self> {
+    pub fn parse_reader<T: Read>(mut reader: T) -> Result<Self, errors::EmptyWarning> {
         let mut buf = String::new();
         reader
             .read_to_string(&mut buf)
             .expect("Non-Utf8 path not supported");
         buf.truncate(buf.trim_end().len());
-
-        use errors::{EmptyListError, EmptyStdIn};
-        FileList::from_string(buf).map_err(|_| {
-            let boxed_err: Box<dyn EmptyListError> = Box::new(EmptyStdIn);
-            boxed_err
-        })
+        FileList::from_string(buf)
     }
 
-    fn from_string(string: String) -> Result<Self, ()> {
+    fn from_string(string: String) -> Result<Self, errors::EmptyWarning> {
         if string.trim().is_empty() {
-            Err(())
+            Err(errors::EmptyWarning)
         } else {
             Ok(FileList::new(string, |s| {
                 FileNames(s.lines().map(|s| Utf8Path::new(s)).collect())
@@ -97,10 +85,6 @@ impl FileList {
         //   Using the underlying pointer is a cheap and easy to reason about,
         //   we simply find the offset between the substring pointer and the
         //   pointer to the parent string
-        //
-        //           `We all scream for ice cream`
-        //            ^                     ^
-        //     String pointer         substring pointer
         //
         // SAFETY:
         //   Both pointers are in bounds and a multiple of 8 bits apart.
@@ -147,21 +131,18 @@ pub mod errors {
     /// ```bash
     /// $ echo | mv-with vim
     /// ```
-    pub trait EmptyListError {
-        fn report(&self) -> Diagnostic<()>;
-    }
-
-    pub struct EmptyStdIn;
-    impl EmptyListError for EmptyStdIn {
-        fn report(&self) -> Diagnostic<()> {
-            Diagnostic::warning().with_message("StdIn is empty")
+    pub struct EmptyWarning;
+    impl EmptyWarning {
+        pub fn report(&self) -> Diagnostic<()> {
+            Diagnostic::warning()
         }
     }
 
-    pub struct EmptyDirectory;
-    impl EmptyListError for EmptyDirectory {
-        fn report(&self) -> Diagnostic<()> {
-            Diagnostic::warning().with_message("Directory is empty")
+    /// Triggered when the edited tempfile is empty
+    pub struct EmptyTempFile;
+    impl EmptyTempFile {
+        pub fn report(&self) -> Diagnostic<()> {
+            Diagnostic::error().with_message("tempfile should not be empty")
         }
     }
 }

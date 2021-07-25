@@ -44,18 +44,22 @@ fn real_main() -> i32 {
         .get_matches();
 
     let file_origins = {
+        let warning;
         match {
             if atty::is(Stream::Stdin) {
+                warning = "StdIn is empty";
                 FileList::parse_walker(WalkBuilder::new("./").build())
             } else {
+                warning = "Directory is empty";
                 FileList::parse_reader(io::stdin().lock())
             }
         } {
             Ok(file_origins) => file_origins,
             // Graceful error handling for empty stdin / directory
-            Err(err) => {
+            Err(warn) => {
                 let file = SimpleFile::new("", "");
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+                let diagnostic = &warn.report().with_message(warning);
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
                 return 1;
             }
         }
@@ -82,8 +86,8 @@ fn real_main() -> i32 {
     match status.code() {
         Some(127) => {
             let file = SimpleFile::new("", &command);
-            let err = errors::MisspelledBashCommand(editor);
-            term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+            let diagnostic = &errors::MisspelledBashCommand(editor).report();
+            term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
             return 1;
         }
         _ => {
@@ -92,6 +96,18 @@ fn real_main() -> i32 {
             }
         }
     }
+
+    let file_targets = {
+        match FileList::parse_reader(fs::File::open(TEMP_FILE).unwrap()) {
+            Ok(filelist) => filelist,
+            Err(_) => {
+                let file = SimpleFile::new("", "");
+                let diagnostic = &errors::EmptyTempFile.report();
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
+                return 1;
+            }
+        }
+    };
 
     if Confirm::new()
         .with_prompt("Do you want to continue?")
@@ -102,6 +118,5 @@ fn real_main() -> i32 {
     } else {
         println!("nevermind then :(");
     }
-
     0
 }
