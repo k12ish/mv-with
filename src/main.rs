@@ -109,6 +109,8 @@ fn real_main() -> i32 {
         }
     };
 
+    let _req = RenameRequest::new(file_origins, file_targets);
+
     if Confirm::new()
         .with_prompt("Do you want to continue?")
         .interact()

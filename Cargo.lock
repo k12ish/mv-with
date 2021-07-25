@@ -228,6 +228,7 @@ dependencies = [
  "dissimilar",
  "ignore",
  "lazy_static",
+ "permutation",
  "self_cell",
 ]
 
@@ -236,6 +237,12 @@ name = "once_cell"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
+
+[[package]]
+name = "permutation"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9978962f8a4b158e97447a6d09d2d75e206d2994eff056c894019f362b27142"
 
 [[package]]
 name = "ppv-lite86"
