@@ -20,6 +20,43 @@ self_cell!(
     impl {Debug, Eq, PartialEq}
 );
 
+impl SharedPaths {
+    fn substring_range<T: AsRef<str>>(&self, substring: T) -> Range<usize> {
+        let string_ptr: *const u8 = self.borrow_owner().as_ptr();
+        let substring_ptr: *const u8 = substring.as_ref().as_ptr();
+        let start;
+
+        debug_assert!({
+            let string_end = string_ptr.wrapping_add(self.borrow_owner().len());
+            let substring_end = substring_ptr.wrapping_add(substring.as_ref().len());
+
+            string_ptr <= substring_ptr
+                && substring_ptr <= substring_end
+                && substring_end <= string_end
+        });
+
+        // RATIONALE:
+        //   Methods like string.find(substring) are ambigous since there may be
+        //   multiple occurences of a substring.
+        //
+        //   Using the underlying pointer is a cheap and easy to reason about,
+        //   we simply find the offset between the substring pointer and the
+        //   pointer to the parent string
+        //
+        // SAFETY:
+        //   Both pointers are in bounds and a multiple of 8 bits apart.
+        //   This operation is equivalent to `ptr_into_vec.offset_from(vec.as_ptr())`,
+        //   so it will never "wrap around" the address space.
+
+        unsafe { start = substring_ptr.offset_from(string_ptr) as usize }
+
+        Range {
+            start,
+            end: start + substring.as_ref().len(),
+        }
+    }
+}
+
 pub struct FileList(SharedPaths);
 
 impl FileList {
@@ -63,7 +100,7 @@ impl FileList {
         for file in list {
             if !file.exists() {
                 labels.push(
-                    Label::primary((), self.substring_range(file))
+                    Label::primary((), self.0.substring_range(file))
                         .with_message("File does not exist"),
                 );
             }
@@ -74,41 +111,6 @@ impl FileList {
             Err(errors::FileDoesNotExist(labels))
         }
     }
-
-    fn substring_range<T: AsRef<str>>(&self, substring: T) -> Range<usize> {
-        let string_ptr: *const u8 = self.as_str().as_ptr();
-        let substring_ptr: *const u8 = substring.as_ref().as_ptr();
-        let start;
-
-        debug_assert!({
-            let string_end = string_ptr.wrapping_add(self.as_str().len());
-            let substring_end = substring_ptr.wrapping_add(substring.as_ref().len());
-
-            string_ptr <= substring_ptr
-                && substring_ptr <= substring_end
-                && substring_end <= string_end
-        });
-
-        // RATIONALE:
-        //   Methods like string.find(substring) are ambigous since there may be
-        //   multiple occurences of a substring.
-        //
-        //   Using the underlying pointer is a cheap and easy to reason about,
-        //   we simply find the offset between the substring pointer and the
-        //   pointer to the parent string
-        //
-        // SAFETY:
-        //   Both pointers are in bounds and a multiple of 8 bits apart.
-        //   This operation is equivalent to `ptr_into_vec.offset_from(vec.as_ptr())`,
-        //   so it will never "wrap around" the address space.
-
-        unsafe { start = substring_ptr.offset_from(string_ptr) as usize }
-
-        Range {
-            start,
-            end: start + substring.as_ref().len(),
-        }
-    }
 }
 
 pub struct RenameRequest {
@@ -117,19 +119,28 @@ pub struct RenameRequest {
 }
 
 impl RenameRequest {
-    pub fn new(origin: FileList, target: FileList) -> Result<Self, (String, errors::TooFewLines)> {
+    pub fn new(origin: FileList, target: FileList) -> Result<Self, (String, errors::RRParseError)> {
         let FileList(origin) = origin;
         let FileList(target) = target;
 
+        use errors::RRParseError;
         use std::cmp::Ordering;
+
         let origin_len = origin.borrow_dependent().0.len();
         let target_len = target.borrow_dependent().0.len();
-
         match target_len.cmp(&origin_len) {
             Ordering::Equal => Ok(RenameRequest { origin, target }),
-            _ => {
-                let index = target.borrow_owner().len() - 1;
-                Err((target.into_owner(), errors::TooFewLines(index)))
+            Ordering::Less => {
+                let end = target.borrow_owner().len();
+                Err((target.into_owner(), RRParseError::TooFewLines(end)))
+            }
+            Ordering::Greater => {
+                let start = {
+                    let vec = &target.borrow_dependent().0;
+                    target.substring_range(vec[origin_len - 1]).end + 1
+                };
+                let end = target.borrow_owner().len();
+                Err((target.into_owner(), RRParseError::TooManyLines(start..end)))
             }
         }
     }
@@ -204,6 +215,7 @@ pub mod errors {
     /// ```rust
     /// EmptyWarning.report().with_message("StdIn is empty")
     /// ```
+    #[derive(Debug)]
     pub struct EmptyWarning;
     impl EmptyWarning {
         pub fn report(&self) -> Diagnostic<()> {
@@ -211,27 +223,30 @@ pub mod errors {
         }
     }
 
-    /// Triggered if the edited tempfile is empty
-    pub struct EmptyTempFile;
-    impl EmptyTempFile {
-        pub fn report(&self) -> Diagnostic<()> {
-            Diagnostic::error().with_message("tempfile should not be empty")
-        }
+    use core::ops::Range;
+    pub enum RRParseError {
+        /// Triggered if the user removes lines from the tempfile
+        TooFewLines(usize),
+        /// Triggered if the user adds extra lines to the tempfile
+        TooManyLines(Range<usize>),
     }
 
-    /// Triggered if the user removes lines from the tempfile
-    pub struct TooFewLines(pub usize);
-    impl TooFewLines {
+    impl RRParseError {
         pub fn report(self) -> Diagnostic<()> {
-            Diagnostic::error()
-                .with_message("Unexpected EOF")
-                .with_labels(vec![
-                    Label::primary((), (self.0)..(self.0)).with_message("Unexpected EOF")
-                ])
-                .with_notes(vec![
-                    "temporary file should have the same number of lines before and after editing"
-                        .into(),
-                ])
+            match self {
+                RRParseError::TooFewLines(end) => Diagnostic::error()
+                    .with_message("Unexpected EOF")
+                    .with_labels(vec![
+                        Label::primary((), end..end).with_message("Unexpected EOF")
+                    ]),
+                RRParseError::TooManyLines(range) => Diagnostic::error()
+                    .with_message("Too many lines in temporary file")
+                    .with_labels(vec![Label::primary((), range).with_message("Expected EOF")]),
+            }
+            .with_notes(vec![
+                "temporary file should have the same number of lines before and after editing"
+                    .into(),
+            ])
         }
     }
 }

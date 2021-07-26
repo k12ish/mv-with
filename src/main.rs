@@ -15,6 +15,7 @@ use ignore::WalkBuilder;
 use lazy_static::lazy_static;
 
 mod internals;
+use internals::errors::*;
 use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
@@ -97,17 +98,8 @@ fn real_main() -> i32 {
         }
     }
 
-    let file_targets = {
-        match FileList::parse_reader(fs::File::open(TEMP_FILE).unwrap()) {
-            Ok(filelist) => filelist,
-            Err(_) => {
-                let file = SimpleFile::new("", "");
-                let diagnostic = &errors::EmptyTempFile.report();
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
-                return 1;
-            }
-        }
-    };
+    let file_targets = FileList::parse_reader(fs::File::open(TEMP_FILE).unwrap())
+        .expect("Temporary file should not be empty");
 
     let mut request = {
         match RenameRequest::new(file_origins, file_targets) {
