@@ -3,7 +3,7 @@ name = "mv-with"
 version = "0.1.0"
 authors = ["k12ish <k4krish@gmail.com>"]
 description = """
-rename-with is a program that allows files to be renamed by editing their names in a text editor, like qmv.
+mv-with is a program that allows files to be renamed by editing their names in a text editor, like qmv.
 """
 repository = "https://github.com/k12ish/mv-with"
 license = "MIT"

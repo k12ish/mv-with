@@ -109,7 +109,19 @@ fn real_main() -> i32 {
         }
     };
 
-    let _req = RenameRequest::new(file_origins, file_targets);
+    let mut request = {
+        match RenameRequest::new(file_origins, file_targets) {
+            Ok(filelist) => filelist,
+            Err((buf, err)) => {
+                let file = SimpleFile::new(TEMP_FILE, buf);
+                let diagnostic = &err.report();
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
+                return 1;
+            }
+        }
+    };
+
+    request.sort();
 
     if Confirm::new()
         .with_prompt("Do you want to continue?")
