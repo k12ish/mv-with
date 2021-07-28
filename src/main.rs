@@ -15,7 +15,6 @@ use ignore::WalkBuilder;
 use lazy_static::lazy_static;
 
 mod internals;
-use internals::errors::*;
 use internals::*;
 
 // TODO: use tempfile::NamedTempFile;
@@ -44,14 +43,19 @@ fn real_main() -> i32 {
         )
         .get_matches();
 
+    let editor = matches.value_of("EDITOR").unwrap();
+
     let file_origins = {
-        let warning;
+        let notes;
         match {
             if atty::is(Stream::Stdin) {
-                warning = "StdIn is empty";
+                notes = vec![
+                    "By default, mv-with respects filters such as globs, file types and .gitignore files".into(),
+                    format!("Use StdIn for finegrained control, eg. `ls -A | mv-with {}`", editor)
+                ];
                 FileList::parse_walker(WalkBuilder::new("./").build())
             } else {
-                warning = "Directory is empty";
+                notes = vec![];
                 FileList::parse_reader(io::stdin().lock())
             }
         } {
@@ -59,9 +63,9 @@ fn real_main() -> i32 {
             // Graceful error handling for empty stdin / directory
             Err(warn) => {
                 let file = SimpleFile::new("", "");
-                let diagnostic = &warn.report().with_message(warning);
+                let diagnostic = &warn.report().with_notes(notes);
                 term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
-                return 1;
+                return 0;
             }
         }
     };
@@ -74,7 +78,6 @@ fn real_main() -> i32 {
 
     fs::write(TEMP_FILE, file_origins.as_str()).unwrap();
 
-    let editor = matches.value_of("EDITOR").unwrap();
     let command = format!("{} {}", &editor, TEMP_FILE);
     let status = Command::new("/usr/bin/sh")
         .arg("-c")
@@ -86,6 +89,8 @@ fn real_main() -> i32 {
 
     match status.code() {
         Some(127) => {
+            // Status 127 that bash couldn't find the command; implies that
+            // the command was likely misspelt
             let file = SimpleFile::new("", &command);
             let diagnostic = &errors::MisspelledBashCommand(editor).report();
             term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();

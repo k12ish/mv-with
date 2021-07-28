@@ -60,7 +60,7 @@ impl SharedPaths {
 pub struct FileList(SharedPaths);
 
 impl FileList {
-    pub fn parse_walker(walker: Walk) -> Result<Self, errors::EmptyWarning> {
+    pub fn parse_walker(walker: Walk) -> Result<Self, errors::FLParseError> {
         let filenames = walker
             .skip(1) // Skip current directory
             .map(|r| r.map(|entry| entry.into_path().into_os_string().into_string()))
@@ -68,26 +68,31 @@ impl FileList {
             .expect("Cannot Read Directory")
             .expect("Non-Utf8 path not supported");
         let buf = filenames.join("\n");
-        FileList::from_string(buf)
+        if buf.trim().is_empty() {
+            Err(errors::FLParseError::EmptyDirectory)
+        } else {
+            Ok(FileList::from_string(buf))
+        }
     }
 
-    pub fn parse_reader<T: Read>(mut reader: T) -> Result<Self, errors::EmptyWarning> {
+    pub fn parse_reader<T: Read>(mut reader: T) -> Result<Self, errors::FLParseError> {
         let mut buf = String::new();
         reader
             .read_to_string(&mut buf)
             .expect("Non-Utf8 path not supported");
         buf.truncate(buf.trim_end().len());
-        FileList::from_string(buf)
+        if buf.trim().is_empty() {
+            Err(errors::FLParseError::EmptyStdIn)
+        } else {
+            Ok(FileList::from_string(buf))
+        }
     }
 
-    fn from_string(string: String) -> Result<Self, errors::EmptyWarning> {
-        if string.trim().is_empty() {
-            Err(errors::EmptyWarning)
-        } else {
-            Ok(FileList(SharedPaths::new(string, |s| {
-                PathVec(s.lines().map(|s| Utf8Path::new(s)).collect())
-            })))
-        }
+    fn from_string(string: String) -> Self {
+        assert!(!string.trim().is_empty());
+        FileList(SharedPaths::new(string, |s| {
+            PathVec(s.lines().map(|s| Utf8Path::new(s)).collect())
+        }))
     }
 
     pub fn as_str(&self) -> &str {
@@ -211,15 +216,20 @@ pub mod errors {
     /// ```bash
     /// $ echo | mv-with vim
     /// ```
-    /// Warning should include a message to indicate origin:
-    /// ```rust
-    /// EmptyWarning.report().with_message("StdIn is empty")
-    /// ```
     #[derive(Debug)]
-    pub struct EmptyWarning;
-    impl EmptyWarning {
-        pub fn report(&self) -> Diagnostic<()> {
-            Diagnostic::warning()
+    pub enum FLParseError {
+        EmptyDirectory,
+        EmptyStdIn,
+    }
+
+    impl FLParseError {
+        pub fn report(self) -> Diagnostic<()> {
+            match self {
+                FLParseError::EmptyDirectory => {
+                    Diagnostic::error().with_message("Directory is empty")
+                }
+                FLParseError::EmptyStdIn => Diagnostic::error().with_message("StdIn is empty"),
+            }
         }
     }
 
