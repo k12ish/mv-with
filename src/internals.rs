@@ -181,6 +181,83 @@ impl RenameRequest {
             dependent.0.append(&mut sorted_paths)
         });
     }
+
+    pub fn print_diffs(&self) {
+        use codespan_reporting::term::termcolor::{BufferWriter, WriteColor};
+        use codespan_reporting::term::termcolor::{Color, ColorChoice, ColorSpec};
+        use dissimilar::Chunk;
+        use std::io::Write;
+
+        let PathVec(origin) = self.origin.borrow_dependent();
+        let PathVec(target) = self.target.borrow_dependent();
+
+        let wtr = BufferWriter::stdout(ColorChoice::Always);
+        let mut buf = wtr.buffer();
+
+        for (before, after) in origin.iter().zip(target) {
+            let chunk_vec = dissimilar::diff(before.as_ref(), after.as_ref());
+
+            // The padding is calculated manually because ANSI escape codes interfere with
+            // formatting strings, we cannot use format!({:>65}) to align the message
+            let padding = {
+                let diff_len: isize = chunk_vec
+                    .iter()
+                    .map(|s| match s {
+                        Chunk::Equal(s) => s.chars().count(),
+                        Chunk::Delete(s) => s.chars().count(),
+                        Chunk::Insert(s) => s.chars().count(),
+                    } as isize)
+                    .sum();
+
+                let len = std::cmp::max(65 - diff_len, 0) as usize;
+                std::iter::repeat(' ').take(len).collect::<String>()
+            };
+
+            buf.set_color(&ColorSpec::new()).unwrap();
+            write!(&mut buf, "  ").unwrap();
+
+            match chunk_vec[..] {
+                [Chunk::Equal(diff)] => {
+                    buf.set_color(&ColorSpec::new().set_dimmed(true)).unwrap();
+                    write!(&mut buf, "{}", diff).unwrap();
+                    buf.set_color(&ColorSpec::new()).unwrap();
+                    write!(&mut buf, "{}", padding).unwrap();
+                    buf.set_color(&ColorSpec::new().set_dimmed(true).set_italic(true))
+                        .unwrap();
+                    write!(&mut buf, "(ignore)").unwrap();
+                }
+                _ => {
+                    for chunk in chunk_vec {
+                        match chunk {
+                            Chunk::Equal(diff) => {
+                                buf.set_color(&ColorSpec::new()).unwrap();
+                                write!(&mut buf, "{}", diff).unwrap();
+                            }
+                            Chunk::Insert(diff) => {
+                                buf.set_color(&ColorSpec::new().set_fg(Some(Color::Green)))
+                                    .unwrap();
+                                write!(&mut buf, "{}", diff).unwrap();
+                            }
+                            Chunk::Delete(diff) => {
+                                buf.set_color(&ColorSpec::new().set_fg(Some(Color::Red)))
+                                    .unwrap();
+                                // HACK: termcolor does not have strikethrough capability
+                                write!(&mut buf, "\x1B[9m{}", diff).unwrap();
+                            }
+                        }
+                    }
+                    buf.set_color(&ColorSpec::new()).unwrap();
+                    write!(&mut buf, "{}", padding).unwrap();
+                    buf.set_color(&ColorSpec::new().set_italic(true)).unwrap();
+                    write!(&mut buf, "(rename)").unwrap();
+                }
+            }
+            writeln!(&mut buf, "").unwrap();
+        }
+        buf.set_color(&ColorSpec::new()).unwrap();
+        writeln!(&mut buf, "").unwrap();
+        wtr.print(&buf).unwrap();
+    }
 }
 
 pub mod errors {
@@ -226,9 +303,9 @@ pub mod errors {
         pub fn report(self) -> Diagnostic<()> {
             match self {
                 FLParseError::EmptyDirectory => {
-                    Diagnostic::error().with_message("Directory is empty")
+                    Diagnostic::warning().with_message("Directory is empty")
                 }
-                FLParseError::EmptyStdIn => Diagnostic::error().with_message("StdIn is empty"),
+                FLParseError::EmptyStdIn => Diagnostic::warning().with_message("StdIn is empty"),
             }
         }
     }

@@ -119,6 +119,7 @@ fn real_main() -> i32 {
     };
 
     request.sort();
+    request.print_diffs();
 
     if Confirm::new()
         .with_prompt("Do you want to continue?")
