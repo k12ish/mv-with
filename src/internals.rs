@@ -21,19 +21,23 @@ self_cell!(
 );
 
 impl SharedPaths {
+    /// Find the the range of a substring within the shared buffer
     fn substring_range<T: AsRef<str>>(&self, substring: T) -> Range<usize> {
         let string_ptr: *const u8 = self.borrow_owner().as_ptr();
         let substring_ptr: *const u8 = substring.as_ref().as_ptr();
         let start;
 
-        debug_assert!({
-            let string_end = string_ptr.wrapping_add(self.borrow_owner().len());
-            let substring_end = substring_ptr.wrapping_add(substring.as_ref().len());
+        debug_assert!(
+            {
+                let string_end = string_ptr.wrapping_add(self.borrow_owner().len());
+                let substring_end = substring_ptr.wrapping_add(substring.as_ref().len());
 
-            string_ptr <= substring_ptr
-                && substring_ptr <= substring_end
-                && substring_end <= string_end
-        });
+                string_ptr <= substring_ptr
+                    && substring_ptr <= substring_end
+                    && substring_end <= string_end
+            },
+            "the substring must be a true substring of the shared buffer"
+        );
 
         // RATIONALE:
         //   Methods like string.find(substring) are ambigous since there may be
@@ -183,8 +187,9 @@ impl RenameRequest {
     }
 
     pub fn print_diffs(&self) {
+        use codespan_reporting::term::termcolor::ColorSpec as Style;
         use codespan_reporting::term::termcolor::{BufferWriter, WriteColor};
-        use codespan_reporting::term::termcolor::{Color, ColorChoice, ColorSpec};
+        use codespan_reporting::term::termcolor::{Color, ColorChoice};
         use dissimilar::Chunk;
         use std::io::Write;
 
@@ -193,6 +198,13 @@ impl RenameRequest {
 
         let wtr = BufferWriter::stdout(ColorChoice::Always);
         let mut buf = wtr.buffer();
+
+        macro_rules! write_buf {
+            ($color:expr, $($arg:tt)*) => {
+                buf.set_color($color).unwrap();
+                write!(&mut buf, $($arg)*).unwrap();
+            };
+        }
 
         for (before, after) in origin.iter().zip(target) {
             let chunk_vec = dissimilar::diff(before.as_ref(), after.as_ref());
@@ -213,48 +225,41 @@ impl RenameRequest {
                 std::iter::repeat(' ').take(len).collect::<String>()
             };
 
-            buf.set_color(&ColorSpec::new()).unwrap();
-            write!(&mut buf, "  ").unwrap();
+            write_buf!(&Style::new(), "  ");
 
             match chunk_vec[..] {
                 [Chunk::Equal(diff)] => {
-                    buf.set_color(&ColorSpec::new().set_dimmed(true)).unwrap();
-                    write!(&mut buf, "{}", diff).unwrap();
-                    buf.set_color(&ColorSpec::new()).unwrap();
-                    write!(&mut buf, "{}", padding).unwrap();
-                    buf.set_color(&ColorSpec::new().set_dimmed(true).set_italic(true))
-                        .unwrap();
-                    write!(&mut buf, "(ignore)").unwrap();
+                    write_buf!(&Style::new().set_dimmed(true), "{}", diff);
+                    write_buf!(&Style::new(), "{}", padding);
+                    write_buf!(&Style::new().set_dimmed(true).set_italic(true), "(ignore)");
                 }
                 _ => {
                     for chunk in chunk_vec {
                         match chunk {
                             Chunk::Equal(diff) => {
-                                buf.set_color(&ColorSpec::new()).unwrap();
-                                write!(&mut buf, "{}", diff).unwrap();
+                                write_buf!(&Style::new(), "{}", diff);
                             }
                             Chunk::Insert(diff) => {
-                                buf.set_color(&ColorSpec::new().set_fg(Some(Color::Green)))
-                                    .unwrap();
-                                write!(&mut buf, "{}", diff).unwrap();
+                                write_buf!(&Style::new().set_fg(Some(Color::Green)), "{}", diff);
                             }
                             Chunk::Delete(diff) => {
-                                buf.set_color(&ColorSpec::new().set_fg(Some(Color::Red)))
-                                    .unwrap();
                                 // HACK: termcolor does not have strikethrough capability
-                                write!(&mut buf, "\x1B[9m{}", diff).unwrap();
+                                write_buf!(
+                                    &Style::new().set_fg(Some(Color::Red)),
+                                    "\x1B[9m{}",
+                                    diff
+                                );
                             }
                         }
                     }
-                    buf.set_color(&ColorSpec::new()).unwrap();
-                    write!(&mut buf, "{}", padding).unwrap();
-                    buf.set_color(&ColorSpec::new().set_italic(true)).unwrap();
-                    write!(&mut buf, "(rename)").unwrap();
+                    write_buf!(&Style::new(), "{}", padding);
+                    write_buf!(&Style::new().set_italic(true), "(rename)");
                 }
             }
             writeln!(&mut buf, "").unwrap();
         }
-        buf.set_color(&ColorSpec::new()).unwrap();
+
+        buf.set_color(&Style::new()).unwrap();
         writeln!(&mut buf, "").unwrap();
         wtr.print(&buf).unwrap();
     }

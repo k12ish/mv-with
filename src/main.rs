@@ -53,7 +53,11 @@ fn real_main() -> i32 {
                     "By default, mv-with respects filters such as globs, file types and .gitignore files".into(),
                     format!("Use StdIn for finegrained control, eg. `ls -A | mv-with {}`", editor)
                 ];
-                FileList::parse_walker(WalkBuilder::new("./").build())
+                FileList::parse_walker(
+                    WalkBuilder::new("./")
+                        .sort_by_file_path(|a, b| a.cmp(b))
+                        .build(),
+                )
             } else {
                 notes = vec![];
                 FileList::parse_reader(io::stdin().lock())
@@ -89,7 +93,7 @@ fn real_main() -> i32 {
 
     match status.code() {
         Some(127) => {
-            // Status 127 that bash couldn't find the command; implies that
+            // Status 127 means that bash couldn't find the command; implies that
             // the command was likely misspelt
             let file = SimpleFile::new("", &command);
             let diagnostic = &errors::MisspelledBashCommand(editor).report();
@@ -98,7 +102,7 @@ fn real_main() -> i32 {
         }
         _ => {
             if !status.success() {
-                panic!("Bash returned unsuccessful exit status")
+                panic!("Bash returned unsuccessful exit status: {:?}", status)
             }
         }
     }
