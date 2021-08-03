@@ -181,7 +181,7 @@ impl RenameRequest {
     }
 
     pub fn print_diffs(&self) {
-        use codespan_reporting::term::termcolor::ColorSpec as Style;
+        use codespan_reporting::term::termcolor::ColorSpec as Spec;
         use codespan_reporting::term::termcolor::{BufferWriter, WriteColor};
         use codespan_reporting::term::termcolor::{Color, ColorChoice};
         use dissimilar::Chunk;
@@ -195,7 +195,7 @@ impl RenameRequest {
 
         macro_rules! write_buf {
             ($color:expr, $($arg:tt)*) => {
-                buf.set_color($color).unwrap();
+                buf.set_color(&$color).unwrap();
                 write!(&mut buf, $($arg)*).unwrap();
             };
         }
@@ -208,53 +208,46 @@ impl RenameRequest {
             let padding = {
                 let diff_len: isize = chunk_vec
                     .iter()
-                    .map(|s| match s {
-                        Chunk::Equal(s) => s.chars().count(),
-                        Chunk::Delete(s) => s.chars().count(),
-                        Chunk::Insert(s) => s.chars().count(),
-                    } as isize)
+                    .map(|chunk| {
+                        let (Chunk::Equal(s) | Chunk::Delete(s) | Chunk::Insert(s)) = chunk;
+                        s.chars().count() as isize
+                    })
                     .sum();
-
-                let len = std::cmp::max(65 - diff_len, 0) as usize;
-                std::iter::repeat(' ').take(len).collect::<String>()
+                " ".repeat(std::cmp::max(65 - diff_len, 0) as usize)
             };
 
-            write_buf!(&Style::new(), "  ");
+            write_buf!(&Spec::new(), "  ");
 
             match chunk_vec[..] {
                 [Chunk::Equal(diff)] => {
-                    write_buf!(&Style::new().set_dimmed(true), "{}", diff);
-                    write_buf!(&Style::new(), "{}", padding);
-                    write_buf!(&Style::new().set_dimmed(true).set_italic(true), "(ignore)");
+                    write_buf!(Spec::new().set_dimmed(true), "{}", diff);
+                    write_buf!(Spec::new(), "{}", padding);
+                    write_buf!(Spec::new().set_dimmed(true).set_italic(true), "(ignore)");
                 }
                 _ => {
                     for chunk in chunk_vec {
                         match chunk {
                             Chunk::Equal(diff) => {
-                                write_buf!(&Style::new(), "{}", diff);
+                                write_buf!(Spec::new(), "{}", diff);
                             }
                             Chunk::Insert(diff) => {
-                                write_buf!(&Style::new().set_fg(Some(Color::Green)), "{}", diff);
+                                write_buf!(Spec::new().set_fg(Some(Color::Green)), "{}", diff);
                             }
                             Chunk::Delete(diff) => {
                                 // HACK: termcolor does not have strikethrough capability
-                                write_buf!(
-                                    &Style::new().set_fg(Some(Color::Red)),
-                                    "\x1B[9m{}",
-                                    diff
-                                );
+                                write_buf!(Spec::new().set_fg(Some(Color::Red)), "\x1B[9m{}", diff);
                             }
                         }
                     }
-                    write_buf!(&Style::new(), "{}", padding);
-                    write_buf!(&Style::new().set_italic(true), "(rename)");
+                    write_buf!(Spec::new(), "{}", padding);
+                    write_buf!(Spec::new().set_italic(true), "(rename)");
                 }
             }
-            writeln!(&mut buf, "").unwrap();
+            writeln!(&mut buf).unwrap();
         }
 
-        buf.set_color(&Style::new()).unwrap();
-        writeln!(&mut buf, "").unwrap();
+        buf.set_color(&Spec::new()).unwrap();
+        writeln!(&mut buf).unwrap();
         wtr.print(&buf).unwrap();
     }
 }
@@ -302,7 +295,14 @@ pub mod errors {
         pub fn report(self) -> Diagnostic<()> {
             match self {
                 FLParseError::EmptyDirectory => {
-                    Diagnostic::warning().with_message("Directory is empty")
+                    Diagnostic::warning()
+                        .with_message("Directory is empty")
+                        .with_notes(
+                            vec![
+                            "By default, mv-with respects filters such as globs, file types and .gitignore files".into(),
+                            "Use StdIn for finegrained control, eg. `ls -A | mv-with vim`".into()
+                            ]
+                        )
                 }
                 FLParseError::EmptyStdIn => Diagnostic::warning().with_message("StdIn is empty"),
             }

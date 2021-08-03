@@ -46,35 +46,29 @@ fn real_main() -> i32 {
     let editor = matches.value_of("EDITOR").unwrap();
 
     let mut file_origins = {
-        let notes;
         match {
             if atty::is(Stream::Stdin) {
-                notes = vec![
-                    "By default, mv-with respects filters such as globs, file types and .gitignore files".into(),
-                    format!("Use StdIn for finegrained control, eg. `ls -A | mv-with {}`", editor)
-                ];
                 FileList::parse_walker(
                     WalkBuilder::new("./")
                         .sort_by_file_path(|a, b| a.cmp(b))
                         .build(),
                 )
             } else {
-                notes = vec![];
                 FileList::parse_reader(io::stdin().lock())
             }
         } {
             Ok(file_origins) => file_origins,
-            // Graceful error handling for empty stdin / directory
+            // Error handling for empty stdin / directory
             Err(warn) => {
                 let file = SimpleFile::new("", "");
-                let diagnostic = &warn.report().with_notes(notes);
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, &warn.report()).unwrap();
                 return 0;
             }
         }
     };
 
     if let Err(err) = file_origins.sort_by_file_depth() {
+        // Error handling for non-existent files
         let file = SimpleFile::new("StdIn", file_origins.as_ref());
         term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
         return 1;
@@ -114,6 +108,7 @@ fn real_main() -> i32 {
         match RenameRequest::new(file_origins, file_targets) {
             Ok(filelist) => filelist,
             Err((buf, err)) => {
+                // Error handling for incompatible file_origins and file_targets
                 let file = SimpleFile::new(TEMP_FILE, buf);
                 let diagnostic = &err.report();
                 term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
