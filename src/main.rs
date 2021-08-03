@@ -45,7 +45,7 @@ fn real_main() -> i32 {
 
     let editor = matches.value_of("EDITOR").unwrap();
 
-    let file_origins = {
+    let mut file_origins = {
         let notes;
         match {
             if atty::is(Stream::Stdin) {
@@ -74,13 +74,13 @@ fn real_main() -> i32 {
         }
     };
 
-    if let Err(err) = file_origins.confirm_files_exist() {
-        let file = SimpleFile::new("StdIn", file_origins.as_str());
+    if let Err(err) = file_origins.sort_by_file_depth() {
+        let file = SimpleFile::new("StdIn", file_origins.as_ref());
         term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
         return 1;
     };
 
-    fs::write(TEMP_FILE, file_origins.as_str()).unwrap();
+    fs::write(TEMP_FILE, file_origins.as_string()).unwrap();
 
     let command = format!("{} {}", &editor, TEMP_FILE);
     let status = Command::new("/usr/bin/sh")
@@ -110,7 +110,7 @@ fn real_main() -> i32 {
     let file_targets = FileList::parse_reader(fs::File::open(TEMP_FILE).unwrap())
         .expect("Temporary file should not be empty");
 
-    let mut request = {
+    let request = {
         match RenameRequest::new(file_origins, file_targets) {
             Ok(filelist) => filelist,
             Err((buf, err)) => {
@@ -122,7 +122,6 @@ fn real_main() -> i32 {
         }
     };
 
-    request.sort();
     request.print_diffs();
 
     if Confirm::new()

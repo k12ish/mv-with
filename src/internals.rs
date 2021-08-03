@@ -99,11 +99,21 @@ impl FileList {
         }))
     }
 
-    pub fn as_str(&self) -> &str {
-        self.0.borrow_owner()
+    pub fn sort_by_file_depth(&mut self) -> Result<(), errors::FileDoesNotExist> {
+        self.confirm_files_exist()?;
+        self.0.with_dependent_mut(|_, dependent| {
+            dependent.0.sort_by_key(|path| {
+                usize::MAX
+                    - std::fs::canonicalize(path)
+                        .expect("TOCTTOU error: files are expected to exist")
+                        .components()
+                        .count()
+            });
+        });
+        Ok(())
     }
 
-    pub fn confirm_files_exist(&self) -> Result<(), errors::FileDoesNotExist> {
+    fn confirm_files_exist(&self) -> Result<(), errors::FileDoesNotExist> {
         let PathVec(list) = self.0.borrow_dependent();
         let mut labels = Vec::new();
         for file in list {
@@ -120,6 +130,22 @@ impl FileList {
             Err(errors::FileDoesNotExist(labels))
         }
     }
+
+    pub fn as_string(&self) -> String {
+        let mut buf = String::new();
+        for path in &self.0.borrow_dependent().0 {
+            buf.push_str(path.as_ref());
+            buf.push('\n');
+        }
+        buf.pop();
+        buf
+    }
+}
+
+impl AsRef<str> for FileList {
+    fn as_ref(&self) -> &str {
+        self.0.borrow_owner()
+    }
 }
 
 pub struct RenameRequest {
@@ -129,14 +155,14 @@ pub struct RenameRequest {
 
 impl RenameRequest {
     pub fn new(origin: FileList, target: FileList) -> Result<Self, (String, errors::RRParseError)> {
-        let FileList(origin) = origin;
-        let FileList(target) = target;
-
         use errors::RRParseError;
         use std::cmp::Ordering;
 
+        let FileList(origin) = origin;
+        let FileList(target) = target;
         let origin_len = origin.borrow_dependent().0.len();
         let target_len = target.borrow_dependent().0.len();
+
         match target_len.cmp(&origin_len) {
             Ordering::Equal => Ok(RenameRequest { origin, target }),
             Ordering::Less => {
@@ -152,38 +178,6 @@ impl RenameRequest {
                 Err((target.into_owner(), RRParseError::TooManyLines(start..end)))
             }
         }
-    }
-
-    pub fn sort(&mut self) {
-        // Permutation that sorts the files in `origin` by order of decreasing
-        // file depth
-        let permutation = {
-            let file_depths = self
-                .origin
-                .borrow_dependent()
-                .0
-                .iter()
-                .map(|path| {
-                    std::fs::canonicalize(path)
-                        .expect("TOCTTOU error: file origins are expected to exist")
-                        .components()
-                        .count()
-                })
-                .collect::<Vec<_>>();
-            permutation::sort_by(&file_depths[..], |a, b| b.cmp(a))
-        };
-
-        // DRY code here is not worth the boilerplate
-        self.origin.with_dependent_mut(|_, dependent| {
-            let mut sorted_paths = permutation.apply_slice(&dependent.0[..]);
-            dependent.0.truncate(0);
-            dependent.0.append(&mut sorted_paths)
-        });
-        self.target.with_dependent_mut(|_, dependent| {
-            let mut sorted_paths = permutation.apply_slice(&dependent.0[..]);
-            dependent.0.truncate(0);
-            dependent.0.append(&mut sorted_paths)
-        });
     }
 
     pub fn print_diffs(&self) {
