@@ -160,20 +160,29 @@ impl RenameRequest {
 
         let FileList(origin) = origin;
         let FileList(target) = target;
-        let origin_len = origin.borrow_dependent().0.len();
-        let target_len = target.borrow_dependent().0.len();
+        let PathVec(origin_vec) = origin.borrow_dependent();
+        let PathVec(target_vec) = target.borrow_dependent();
+        let origin_len = origin_vec.len();
+        let target_len = target_vec.len();
 
         match target_len.cmp(&origin_len) {
-            Ordering::Equal => Ok(RenameRequest { origin, target }),
+            Ordering::Equal => {
+                if origin_vec
+                    .iter()
+                    .zip(target_vec.iter())
+                    .all(|(a, b)| a == b)
+                {
+                    Err((target.into_owner(), RRParseError::FileUnchanged))
+                } else {
+                    Ok(RenameRequest { origin, target })
+                }
+            }
             Ordering::Less => {
                 let end = target.borrow_owner().len();
                 Err((target.into_owner(), RRParseError::TooFewLines(end)))
             }
             Ordering::Greater => {
-                let start = {
-                    let vec = &target.borrow_dependent().0;
-                    target.substring_range(vec[origin_len - 1]).end + 1
-                };
+                let start = target.substring_range(target_vec[origin_len - 1]).end + 1;
                 let end = target.borrow_owner().len();
                 Err((target.into_owner(), RRParseError::TooManyLines(start..end)))
             }
@@ -210,6 +219,7 @@ impl RenameRequest {
                     .iter()
                     .map(|chunk| {
                         let (Chunk::Equal(s) | Chunk::Delete(s) | Chunk::Insert(s)) = chunk;
+                        // TODO: unicode-segmentation here
                         s.chars().count() as isize
                     })
                     .sum();
@@ -315,11 +325,16 @@ pub mod errors {
         TooFewLines(usize),
         /// Triggered if the user adds extra lines to the tempfile
         TooManyLines(Range<usize>),
+        /// Triggered if the file is unchanged
+        FileUnchanged,
     }
 
     impl RRParseError {
         pub fn report(self) -> Diagnostic<()> {
             match self {
+                RRParseError::FileUnchanged => {
+                    return Diagnostic::note().with_message("Temporary file unchanged")
+                }
                 RRParseError::TooFewLines(end) => Diagnostic::error()
                     .with_message("Unexpected EOF")
                     .with_labels(vec![

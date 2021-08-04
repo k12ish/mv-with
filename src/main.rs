@@ -60,7 +60,7 @@ fn real_main() -> i32 {
             Ok(file_origins) => file_origins,
             // Error handling for empty stdin / directory
             Err(warn) => {
-                let file = SimpleFile::new("", "");
+                let file = SimpleFile::new("Stdin", "");
                 term::emit(&mut WRITER.lock(), &CONFIG, &file, &warn.report()).unwrap();
                 return 0;
             }
@@ -119,14 +119,15 @@ fn real_main() -> i32 {
 
     request.print_diffs();
 
-    if Confirm::new()
+    if !Confirm::new()
         .with_prompt("Do you want to continue?")
         .interact()
         .unwrap()
     {
-        println!("Looks like you want to continue");
-    } else {
         println!("nevermind then :(");
+        return 0;
     }
+
+    println!("Looks like you want to continue");
     0
 }
