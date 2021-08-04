@@ -64,7 +64,7 @@ impl SharedPaths {
 pub struct FileList(SharedPaths);
 
 impl FileList {
-    pub fn parse_walker(walker: Walk) -> Result<Self, errors::FLParseError> {
+    pub fn parse_walker(walker: Walk) -> Result<Self, (String, errors::FLParseError)> {
         let filenames = walker
             .skip(1) // Skip current directory
             .map(|r| r.map(|entry| entry.into_path().into_os_string().into_string()))
@@ -73,47 +73,33 @@ impl FileList {
             .expect("Non-Utf8 path not supported");
         let buf = filenames.join("\n");
         if buf.trim().is_empty() {
-            Err(errors::FLParseError::EmptyDirectory)
+            Err((buf, errors::FLParseError::EmptyDirectory))
         } else {
-            Ok(FileList::from_string(buf))
+            FileList::from_string(buf)
         }
     }
 
-    pub fn parse_reader<T: Read>(mut reader: T) -> Result<Self, errors::FLParseError> {
+    pub fn parse_reader<T: Read>(mut reader: T) -> Result<Self, (String, errors::FLParseError)> {
         let mut buf = String::new();
         reader
             .read_to_string(&mut buf)
             .expect("Non-Utf8 path not supported");
         buf.truncate(buf.trim_end().len());
         if buf.trim().is_empty() {
-            Err(errors::FLParseError::EmptyStdIn)
+            Err((buf, errors::FLParseError::EmptyStdIn))
         } else {
-            Ok(FileList::from_string(buf))
+            FileList::from_string(buf)
         }
     }
 
-    fn from_string(string: String) -> Self {
-        assert!(!string.trim().is_empty());
-        FileList(SharedPaths::new(string, |s| {
+    fn from_string(string: String) -> Result<Self, (String, errors::FLParseError)> {
+        let file_list = FileList(SharedPaths::new(string, |s| {
             PathVec(s.lines().map(|s| Utf8Path::new(s)).collect())
-        }))
+        }));
+        file_list.confirm_files_exist()
     }
 
-    pub fn sort_by_file_depth(&mut self) -> Result<(), errors::FileDoesNotExist> {
-        self.confirm_files_exist()?;
-        self.0.with_dependent_mut(|_, dependent| {
-            dependent.0.sort_by_key(|path| {
-                usize::MAX
-                    - std::fs::canonicalize(path)
-                        .expect("TOCTTOU error: files are expected to exist")
-                        .components()
-                        .count()
-            });
-        });
-        Ok(())
-    }
-
-    fn confirm_files_exist(&self) -> Result<(), errors::FileDoesNotExist> {
+    fn confirm_files_exist(self) -> Result<Self, (String, errors::FLParseError)> {
         let PathVec(list) = self.0.borrow_dependent();
         let mut labels = Vec::new();
         for file in list {
@@ -125,10 +111,25 @@ impl FileList {
             }
         }
         if labels.is_empty() {
-            Ok(())
+            Ok(self)
         } else {
-            Err(errors::FileDoesNotExist(labels))
+            Err((
+                self.0.into_owner(),
+                errors::FLParseError::FileDoesNotExist(labels),
+            ))
         }
+    }
+
+    pub fn sort_by_file_depth(&mut self) {
+        self.0.with_dependent_mut(|_, dependent| {
+            dependent.0.sort_by_key(|path| {
+                usize::MAX
+                    - std::fs::canonicalize(path)
+                        .expect("TOCTTOU error: files are expected to exist")
+                        .components()
+                        .count()
+            });
+        });
     }
 
     pub fn as_string(&self) -> String {
@@ -278,43 +279,46 @@ pub mod errors {
         }
     }
 
-    /// Triggered an input file does not exist.
-    /// ```bash
-    /// $ echo invalid_filename | mv-with vim
-    /// ```
-    pub struct FileDoesNotExist(pub Vec<Label<()>>);
-    impl FileDoesNotExist {
-        pub fn report(self) -> Diagnostic<()> {
-            Diagnostic::error()
-                .with_message("file does not exist")
-                .with_labels(self.0)
-        }
-    }
-
-    /// Triggered the StdIn/Directory is empty
-    /// ```bash
-    /// $ echo | mv-with vim
-    /// ```
     #[derive(Debug)]
     pub enum FLParseError {
+        /// Triggered if the Directory is empty
+        /// ```bash
+        /// $ mkdir foo && cd foo
+        /// $ mv-with vim
+        /// ```
         EmptyDirectory,
+        /// Triggered if the StdIn is empty
+        /// ```bash
+        /// $ echo | mv-with vim
+        /// ```
         EmptyStdIn,
+        /// Triggered an input file does not exist.
+        /// ```bash
+        /// $ echo invalid_filename | mv-with vim
+        /// ```
+        FileDoesNotExist(Vec<Label<()>>),
     }
 
+    use FLParseError::*;
     impl FLParseError {
         pub fn report(self) -> Diagnostic<()> {
             match self {
-                FLParseError::EmptyDirectory => {
+                EmptyDirectory => {
                     Diagnostic::warning()
                         .with_message("Directory is empty")
-                        .with_notes(
-                            vec![
+                        .with_notes(vec![
                             "By default, mv-with respects filters such as globs, file types and .gitignore files".into(),
                             "Use StdIn for finegrained control, eg. `ls -A | mv-with vim`".into()
-                            ]
-                        )
-                }
-                FLParseError::EmptyStdIn => Diagnostic::warning().with_message("StdIn is empty"),
+                        ])}
+                EmptyStdIn => Diagnostic::warning().with_message("StdIn is empty"),
+                FileDoesNotExist(labels) => Diagnostic::error().with_message("File does not exist").with_labels(labels)
+            }
+        }
+
+        pub fn status(&self) -> Option<i32> {
+            match self {
+                FileDoesNotExist(_) => Some(1),
+                EmptyDirectory | EmptyStdIn => Some(0),
             }
         }
     }

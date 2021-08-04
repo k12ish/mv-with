@@ -58,21 +58,17 @@ fn real_main() -> i32 {
             }
         } {
             Ok(file_origins) => file_origins,
-            // Error handling for empty stdin / directory
-            Err(warn) => {
-                let file = SimpleFile::new("Stdin", "");
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, &warn.report()).unwrap();
-                return 0;
+            // Error handling for empty stdin / directory or invalid filename
+            Err((buf, error)) => {
+                let file = SimpleFile::new("Stdin", buf);
+                let status = error.status().unwrap();
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, &error.report()).unwrap();
+                return status;
             }
         }
     };
 
-    if let Err(err) = file_origins.sort_by_file_depth() {
-        // Error handling for non-existent files
-        let file = SimpleFile::new("StdIn", file_origins.as_ref());
-        term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
-        return 1;
-    };
+    file_origins.sort_by_file_depth();
 
     fs::write(TEMP_FILE, file_origins.as_string()).unwrap();
 
