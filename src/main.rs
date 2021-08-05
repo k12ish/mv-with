@@ -56,10 +56,11 @@ fn real_main() -> i32 {
             } else {
                 FileList::parse_reader(io::stdin().lock())
             }
+            .map(|f| f.confirm_files_exist())
         } {
-            Ok(file_origins) => file_origins,
+            Ok(Ok(file_origins)) => file_origins,
             // Error handling for empty stdin / directory or invalid filename
-            Err((buf, error)) => {
+            Ok(Err((buf, error))) | Err((buf, error)) => {
                 let file = SimpleFile::new("Stdin", buf);
                 let status = error.status().unwrap();
                 term::emit(&mut WRITER.lock(), &CONFIG, &file, &error.report()).unwrap();
@@ -68,6 +69,8 @@ fn real_main() -> i32 {
         }
     };
 
+    // Sort the files by decreasing file depth
+    // Hence, file `foo/bar` is renamed before `foo`
     file_origins.sort_by_file_depth();
 
     fs::write(TEMP_FILE, file_origins.as_string()).unwrap();
@@ -106,9 +109,9 @@ fn real_main() -> i32 {
             Err((buf, err)) => {
                 // Error handling for incompatible file_origins and file_targets
                 let file = SimpleFile::new(TEMP_FILE, buf);
-                let diagnostic = &err.report();
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
-                return 1;
+                let status = err.status().unwrap();
+                term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+                return status;
             }
         }
     };

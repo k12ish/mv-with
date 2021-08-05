@@ -75,7 +75,7 @@ impl FileList {
         if buf.trim().is_empty() {
             Err((buf, errors::FLParseError::EmptyDirectory))
         } else {
-            FileList::from_string(buf)
+            Ok(FileList::from_string(buf))
         }
     }
 
@@ -88,18 +88,17 @@ impl FileList {
         if buf.trim().is_empty() {
             Err((buf, errors::FLParseError::EmptyStdIn))
         } else {
-            FileList::from_string(buf)
+            Ok(FileList::from_string(buf))
         }
     }
 
-    fn from_string(string: String) -> Result<Self, (String, errors::FLParseError)> {
-        let file_list = FileList(SharedPaths::new(string, |s| {
+    fn from_string(string: String) -> Self {
+        FileList(SharedPaths::new(string, |s| {
             PathVec(s.lines().map(|s| Utf8Path::new(s)).collect())
-        }));
-        file_list.confirm_files_exist()
+        }))
     }
 
-    fn confirm_files_exist(self) -> Result<Self, (String, errors::FLParseError)> {
+    pub fn confirm_files_exist(self) -> Result<Self, (String, errors::FLParseError)> {
         let PathVec(list) = self.0.borrow_dependent();
         let mut labels = Vec::new();
         for file in list {
@@ -196,6 +195,7 @@ impl RenameRequest {
         use codespan_reporting::term::termcolor::{Color, ColorChoice};
         use dissimilar::Chunk;
         use std::io::Write;
+        use unicode_segmentation::UnicodeSegmentation;
 
         let PathVec(origin) = self.origin.borrow_dependent();
         let PathVec(target) = self.target.borrow_dependent();
@@ -221,7 +221,7 @@ impl RenameRequest {
                     .map(|chunk| {
                         let (Chunk::Equal(s) | Chunk::Delete(s) | Chunk::Insert(s)) = chunk;
                         // TODO: unicode-segmentation here
-                        s.chars().count() as isize
+                        s.graphemes(true).count() as isize
                     })
                     .sum();
                 " ".repeat(std::cmp::max(65 - diff_len, 0) as usize)
@@ -333,18 +333,19 @@ pub mod errors {
         FileUnchanged,
     }
 
+    use RRParseError::*;
     impl RRParseError {
         pub fn report(self) -> Diagnostic<()> {
             match self {
-                RRParseError::FileUnchanged => {
-                    return Diagnostic::note().with_message("Temporary file unchanged")
+                FileUnchanged => {
+                    return Diagnostic::note().with_message("Temporary file was unchanged")
                 }
-                RRParseError::TooFewLines(end) => Diagnostic::error()
+                TooFewLines(end) => Diagnostic::error()
                     .with_message("Unexpected EOF")
                     .with_labels(vec![
                         Label::primary((), end..end).with_message("Unexpected EOF")
                     ]),
-                RRParseError::TooManyLines(range) => Diagnostic::error()
+                TooManyLines(range) => Diagnostic::error()
                     .with_message("Too many lines in temporary file")
                     .with_labels(vec![Label::primary((), range).with_message("Expected EOF")]),
             }
@@ -352,6 +353,13 @@ pub mod errors {
                 "temporary file should have the same number of lines before and after editing"
                     .into(),
             ])
+        }
+
+        pub fn status(&self) -> Option<i32> {
+            match self {
+                FileUnchanged => Some(0),
+                TooFewLines(_) | TooManyLines(_) => Some(1),
+            }
         }
     }
 }
