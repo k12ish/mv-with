@@ -95,7 +95,7 @@ fn real_main() -> i32 {
         }
         _ => {
             if !status.success() {
-                panic!("Bash returned unsuccessful exit status: {:?}", status)
+                panic!("Bash returned unsuccessful exit status:\n{:?}", status)
             }
         }
     }
@@ -127,6 +127,10 @@ fn real_main() -> i32 {
         return 0;
     }
 
-    println!("Looks like you want to continue");
+    if let Err(error) = request.rename() {
+        let file = SimpleFile::new("", "");
+        term::emit(&mut WRITER.lock(), &CONFIG, &file, &error.report()).unwrap();
+        return 1;
+    };
     0
 }

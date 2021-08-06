@@ -193,7 +193,7 @@ impl RenameRequest {
         use codespan_reporting::term::termcolor::ColorSpec as Spec;
         use codespan_reporting::term::termcolor::{BufferWriter, WriteColor};
         use codespan_reporting::term::termcolor::{Color, ColorChoice};
-        use dissimilar::Chunk;
+        use dissimilar::Chunk::*;
         use std::io::Write;
         use unicode_segmentation::UnicodeSegmentation;
 
@@ -219,8 +219,7 @@ impl RenameRequest {
                 let diff_len: isize = chunk_vec
                     .iter()
                     .map(|chunk| {
-                        let (Chunk::Equal(s) | Chunk::Delete(s) | Chunk::Insert(s)) = chunk;
-                        // TODO: unicode-segmentation here
+                        let (Equal(s) | Delete(s) | Insert(s)) = chunk;
                         s.graphemes(true).count() as isize
                     })
                     .sum();
@@ -229,37 +228,50 @@ impl RenameRequest {
 
             write_buf!(&Spec::new(), "  ");
 
-            match chunk_vec[..] {
-                [Chunk::Equal(diff)] => {
-                    write_buf!(Spec::new().set_dimmed(true), "{}", diff);
-                    write_buf!(Spec::new(), "{}", padding);
-                    write_buf!(Spec::new().set_dimmed(true).set_italic(true), "(ignore)");
-                }
-                _ => {
-                    for chunk in chunk_vec {
-                        match chunk {
-                            Chunk::Equal(diff) => {
-                                write_buf!(Spec::new(), "{}", diff);
-                            }
-                            Chunk::Insert(diff) => {
-                                write_buf!(Spec::new().set_fg(Some(Color::Green)), "{}", diff);
-                            }
-                            Chunk::Delete(diff) => {
-                                // HACK: termcolor does not have strikethrough capability
-                                write_buf!(Spec::new().set_fg(Some(Color::Red)), "\x1B[9m{}", diff);
-                            }
-                        }
+            if let [Equal(diff) | Delete(diff)] = chunk_vec[..] {
+                write_buf!(Spec::new().set_dimmed(true), "{}", diff);
+                write_buf!(Spec::new(), "{}", padding);
+                write_buf!(Spec::new().set_dimmed(true).set_italic(true), "(ignore)");
+                writeln!(&mut buf).unwrap();
+                continue;
+            }
+
+            for chunk in chunk_vec {
+                match chunk {
+                    Equal(diff) => {
+                        write_buf!(Spec::new(), "{}", diff);
                     }
-                    write_buf!(Spec::new(), "{}", padding);
-                    write_buf!(Spec::new().set_italic(true), "(rename)");
+                    Insert(diff) => {
+                        write_buf!(Spec::new().set_fg(Some(Color::Green)), "{}", diff);
+                    }
+                    Delete(diff) => {
+                        // HACK: termcolor does not yet have strikethrough capability
+                        write_buf!(Spec::new().set_fg(Some(Color::Red)), "\x1B[9m{}", diff);
+                    }
                 }
             }
+            write_buf!(Spec::new(), "{}", padding);
+            write_buf!(Spec::new().set_italic(true), "(rename)");
             writeln!(&mut buf).unwrap();
         }
 
         buf.set_color(&Spec::new()).unwrap();
         writeln!(&mut buf).unwrap();
         wtr.print(&buf).unwrap();
+    }
+
+    pub fn rename(self) -> Result<(), errors::CannotRenameFile> {
+        let PathVec(origin) = self.origin.borrow_dependent();
+        let PathVec(target) = self.target.borrow_dependent();
+        for (before, after) in origin.iter().zip(target) {
+            if let Err(e) = std::fs::rename(before, after) {
+                return Err(errors::CannotRenameFile(
+                    (before.to_string(), after.to_string()),
+                    format!("{}", e),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -276,6 +288,17 @@ pub mod errors {
             Diagnostic::error()
                 .with_message(format!("cannot execute `{}`", self.0))
                 .with_notes(vec![String::from("Did you misspell this command?")])
+        }
+    }
+
+    /// Triggered when mv-with cannot rename a file
+    pub struct CannotRenameFile(pub (String, String), pub String);
+    impl CannotRenameFile {
+        pub fn report(self) -> Diagnostic<()> {
+            let (before, after) = self.0;
+            Diagnostic::error()
+                .with_message(format!("cannot rename `{}` to `{}`", before, after))
+                .with_notes(vec![format!("Underlying OS error: {}", self.1)])
         }
     }
 
