@@ -89,7 +89,7 @@ fn real_main() -> i32 {
             // Status 127 means that bash couldn't find the command; implies that
             // the command was likely misspelt
             let file = SimpleFile::new("", &command);
-            let diagnostic = &errors::MisspelledBashCommand(editor).report();
+            let diagnostic = &internals::MisspelledBashCommand(editor).report();
             term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
             return 1;
         }
