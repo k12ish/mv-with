@@ -7,8 +7,8 @@ use codespan_reporting::diagnostic::Label;
 use ignore::Walk;
 use self_cell::self_cell;
 
-#[derive(Debug, Eq, PartialEq)]
-struct PathVec<'a>(pub Vec<&'a Utf8Path>);
+/// This type alias is required by the `self_cell` macro.
+type PathVec<'a> = Vec<&'a Utf8Path>;
 
 self_cell!(
     struct SharedPaths {
@@ -94,12 +94,12 @@ impl FileList {
 
     fn from_string(string: String) -> Self {
         FileList(SharedPaths::new(string, |s| {
-            PathVec(s.lines().map(|s| Utf8Path::new(s)).collect())
+            s.lines().map(|s| Utf8Path::new(s)).collect()
         }))
     }
 
     pub fn confirm_files_exist(self) -> Result<Self, (String, errors::FLParseError)> {
-        let PathVec(list) = self.0.borrow_dependent();
+        let list = self.0.borrow_dependent();
         let mut labels = Vec::new();
         for file in list {
             if !file.exists() {
@@ -121,7 +121,7 @@ impl FileList {
 
     pub fn sort_by_file_depth(&mut self) {
         self.0.with_dependent_mut(|_, dependent| {
-            dependent.0.sort_by_key(|path| {
+            dependent.sort_by_key(|path| {
                 usize::MAX
                     - std::fs::canonicalize(path)
                         .expect("TOCTTOU error: files are expected to exist")
@@ -133,7 +133,7 @@ impl FileList {
 
     pub fn as_string(&self) -> String {
         let mut buf = String::new();
-        for path in &self.0.borrow_dependent().0 {
+        for path in self.0.borrow_dependent() {
             buf.push_str(path.as_ref());
             buf.push('\n');
         }
@@ -160,8 +160,8 @@ impl RenameRequest {
 
         let FileList(origin) = origin;
         let FileList(target) = target;
-        let PathVec(origin_vec) = origin.borrow_dependent();
-        let PathVec(target_vec) = target.borrow_dependent();
+        let origin_vec = origin.borrow_dependent();
+        let target_vec = target.borrow_dependent();
         let origin_len = origin_vec.len();
         let target_len = target_vec.len();
 
@@ -197,8 +197,8 @@ impl RenameRequest {
         use std::io::Write;
         use unicode_segmentation::UnicodeSegmentation;
 
-        let PathVec(origin) = self.origin.borrow_dependent();
-        let PathVec(target) = self.target.borrow_dependent();
+        let origin = self.origin.borrow_dependent();
+        let target = self.target.borrow_dependent();
 
         let wtr = BufferWriter::stdout(ColorChoice::Always);
         let mut buf = wtr.buffer();
@@ -261,8 +261,8 @@ impl RenameRequest {
     }
 
     pub fn rename(self) -> Result<(), errors::CannotRenameFile> {
-        let PathVec(origin) = self.origin.borrow_dependent();
-        let PathVec(target) = self.target.borrow_dependent();
+        let origin = self.origin.borrow_dependent();
+        let target = self.target.borrow_dependent();
         for (before, after) in origin.iter().zip(target) {
             if let Err(e) = std::fs::rename(before, after) {
                 return Err(errors::CannotRenameFile(
@@ -278,7 +278,7 @@ impl RenameRequest {
 pub mod errors {
     use codespan_reporting::diagnostic::{Diagnostic, Label};
 
-    /// Triggered when you misspell an argument, eg.:
+    /// Triggered when you misspell an argument
     /// ```bash
     /// $ mv-with ivm
     /// ```
@@ -303,6 +303,7 @@ pub mod errors {
     }
 
     #[derive(Debug)]
+    /// Errors that can be triggerd when creating a `FileList` struct
     pub enum FLParseError {
         /// Triggered if the Directory is empty
         /// ```bash
@@ -347,6 +348,7 @@ pub mod errors {
     }
 
     use core::ops::Range;
+    /// Errors that can be triggerd when creating a `RenameRequest` struct
     pub enum RRParseError {
         /// Triggered if the user removes lines from the tempfile
         TooFewLines(usize),
