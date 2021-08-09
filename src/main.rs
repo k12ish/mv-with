@@ -5,6 +5,7 @@ use std::process::Command;
 use atty::Stream;
 use clap::App;
 use clap::Arg;
+use codespan_reporting::diagnostic::Diagnostic;
 use codespan_reporting::files::SimpleFile;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::ColorChoice;
@@ -12,7 +13,6 @@ use codespan_reporting::term::termcolor::StandardStream;
 use codespan_reporting::term::Config;
 use dialoguer::Confirm;
 use ignore::WalkBuilder;
-use lazy_static::lazy_static;
 
 mod internals;
 use internals::*;
@@ -20,9 +20,10 @@ use internals::*;
 // TODO: use tempfile::NamedTempFile;
 static TEMP_FILE: &str = "/tmp/mv-with";
 
-lazy_static! {
-    static ref WRITER: StandardStream = StandardStream::stderr(ColorChoice::Always);
-    static ref CONFIG: Config = Config::default();
+fn emit(file: SimpleFile<&str, String>, diagnostic: Diagnostic<()>) {
+    let writer = StandardStream::stderr(ColorChoice::Always);
+    let config = Config::default();
+    term::emit(&mut writer.lock(), &config, &file, &diagnostic).unwrap();
 }
 
 fn main() {
@@ -63,7 +64,7 @@ fn real_main() -> i32 {
             Ok(Err((buf, error))) | Err((buf, error)) => {
                 let file = SimpleFile::new("Stdin", buf);
                 let status = error.status().unwrap();
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, &error.report()).unwrap();
+                emit(file, error.report());
                 return status;
             }
         }
@@ -88,9 +89,9 @@ fn real_main() -> i32 {
         Some(127) => {
             // Status 127 means that bash couldn't find the command; implies that
             // the command was likely misspelt
-            let file = SimpleFile::new("", &command);
-            let diagnostic = &internals::MisspelledBashCommand(editor).report();
-            term::emit(&mut WRITER.lock(), &CONFIG, &file, diagnostic).unwrap();
+            let file = SimpleFile::new("", command);
+            let diagnostic = internals::MisspelledBashCommand(editor).report();
+            emit(file, diagnostic);
             return 1;
         }
         _ => {
@@ -110,7 +111,7 @@ fn real_main() -> i32 {
                 // Error handling for incompatible file_origins and file_targets
                 let file = SimpleFile::new(TEMP_FILE, buf);
                 let status = err.status().unwrap();
-                term::emit(&mut WRITER.lock(), &CONFIG, &file, &err.report()).unwrap();
+                emit(file, err.report());
                 return status;
             }
         }
@@ -128,8 +129,8 @@ fn real_main() -> i32 {
     }
 
     if let Err(error) = request.rename() {
-        let file = SimpleFile::new("", "");
-        term::emit(&mut WRITER.lock(), &CONFIG, &file, &error.report()).unwrap();
+        let file = SimpleFile::new("", "".into());
+        emit(file, error.report());
         return 1;
     };
     0
